@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[7]:
-
-
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -97,7 +91,7 @@ if selected_status != 'All':
 st.title('⚖️ County Weights & Measures Digital Transformation Hub')
 st.markdown(
     '*Replacing manual paper records with real-time analytics, rapid lookups,'
-    ' and revenue tracking (2015–2026).*'
+    ' and cashless M-Pesa revenue tracking (2015–2026).*'
 )
 st.markdown('---')
 
@@ -116,7 +110,7 @@ compliance_rate = (
 
 col1, col2, col3 = st.columns(3)
 col1.metric('Total Inspections Logged', f'{total_inspections:,}')
-col2.metric('Estimated Revenue Collected', f'${total_revenue:,.2f}')
+col2.metric('Estimated Revenue Collected', f'KES {total_revenue:,.2f}')
 col3.metric('Compliance Rate', f'{compliance_rate:.1f}%')
 
 st.markdown('---')
@@ -125,7 +119,7 @@ st.markdown('---')
 tab1, tab2, tab3 = st.tabs([
     '📈 Trends & Analytics',
     '📂 Digital Archive (Search)',
-    '📝 Field Inspection Portal',
+    '📝 Field Inspection Portal (Cashless)',
 ])
 
 with tab1:
@@ -139,7 +133,7 @@ with tab1:
     st.bar_chart(yearly_counts)
 
   with col_b:
-    st.markdown('**Revenue Collected per Year ($)**')
+    st.markdown('**Revenue Collected per Year (KES)**')
     yearly_revenue = filtered_df.groupby('Year')['Fee_Collected'].sum()
     st.line_chart(yearly_revenue)
 
@@ -160,10 +154,10 @@ with tab2:
   st.caption(f'Showing {len(display_df)} matching records.')
 
 with tab3:
-  st.subheader('Simulate New Field Entry')
+  st.subheader('Simulate New Field Entry & M-Pesa Payment')
   st.markdown(
-      'Inspectors use this form in the field instead of writing in paper'
-      ' books.'
+      'All inspection fees are strictly cashless via M-Pesa to prevent revenue'
+      ' leakage and cash handling.'
   )
 
   with st.form('inspection_form'):
@@ -177,7 +171,11 @@ with tab3:
               'Platform Scale',
               'Fuel Dispenser',
               'Spring Balance',
+              'Mass Piece',
           ],
+      )
+      phone_number = st.text_input(
+          'Trader Phone Number (M-Pesa)', placeholder='0712345678'
       )
     with f_col2:
       new_subcounty = st.selectbox(
@@ -187,11 +185,19 @@ with tab3:
       new_status = st.selectbox(
           'Inspection Result', ['Passed', 'Rejected', 'Conditional Pass']
       )
+      mpesa_code = st.text_input(
+          'M-Pesa Confirmation Code', placeholder='e.g., QHC792XKL1'
+      )
 
-    submitted = st.form_submit_button('Submit Digital Record')
+    submitted = st.form_submit_button('Verify Payment & Submit Digital Record')
     if submitted:
       if new_trader.strip() == '':
         st.warning('Please enter a valid Trader / Business Name.')
+      elif len(mpesa_code.strip()) < 8:
+        st.error(
+            '⚠️ Transaction Blocked: A valid M-Pesa confirmation code is'
+            ' required (Strictly No Cash Allowed).'
+        )
       else:
         fee_amount = 3000 if new_status == 'Passed' else 1000
         new_row = pd.DataFrame({
@@ -206,49 +212,36 @@ with tab3:
             [st.session_state['df'], new_row], ignore_index=True
         )
         st.success(
-            f'Successfully logged inspection for **{new_trader}**! Record'
-            ' synced to county database.'
+            f'Payment of KES {fee_amount:,} verified via M-Pesa code'
+            f' **{mpesa_code.upper()}** for **{new_trader}**! Record synced'
+            ' to county master database.'
         )
 
-
-# --- AUTOMATED RECEIPT GENERATION ---
-if submitted:
-    receipt_text = f"""
+        # --- AUTOMATED RECEIPT WITH M-PESA VALIDATION ---
+        receipt_text = f"""
 ==================================================
    COUNTY WEIGHTS & MEASURES DIGITAL REGISTRY
-            OFFICIAL INSPECTION RECEIPT
+          OFFICIAL CASHLESS M-PESA RECEIPT
 ==================================================
 Date / Year: 2026 Field Audit Cycle
 Trader / Business: {new_trader}
+Phone Contact: {phone_number}
 Sub-County Region: {new_subcounty}
 Equipment Verified: {new_equipment}
 Inspection Status: {new_status}
-Fee Assessed / Paid: KES {fee_amount:,}
+--------------------------------------------------
+M-PESA TRANSACTION DETAILS:
+Confirmation Code: {mpesa_code.upper()}
+Amount Paid: KES {fee_amount:,}
+Payment Status: CONFIRMED & RECONCILED
 --------------------------------------------------
 Certified by: County Field Inspector Unit
 Status: Logged & Verified in Master Database
 ==================================================
 """
-
-    # Store receipt so it remains available after reruns
-    st.session_state["receipt_text"] = receipt_text
-    st.session_state["receipt_filename"] = (
-        f"Receipt_{new_trader}.txt"
-    )
-
-# Download button must be OUTSIDE st.form()
-if st.session_state.get("receipt_text"):
-    st.download_button(
-        label="📥 Download Official Receipt (TXT)",
-        data=st.session_state["receipt_text"],
-        file_name=st.session_state["receipt_filename"],
-        mime="text/plain",
-        key="download_receipt",
-    )
-
-
-# In[ ]:
-
-
-
-
+        st.download_button(
+            label='📥 Download Official M-Pesa Receipt (TXT)',
+            data=receipt_text,
+            file_name=f'Mpesa_Receipt_{new_trader}.txt',
+            mime='text/plain',
+        )
