@@ -160,6 +160,12 @@ with tab3:
       ' leakage and cash handling.'
   )
 
+  # Initialize receipt state session variables if not present
+  if 'last_receipt' not in st.session_state:
+    st.session_state['last_receipt'] = None
+  if 'last_filename' not in st.session_state:
+    st.session_state['last_filename'] = None
+
   with st.form('inspection_form'):
     f_col1, f_col2 = st.columns(2)
     with f_col1:
@@ -211,14 +217,10 @@ with tab3:
         st.session_state['df'] = pd.concat(
             [st.session_state['df'], new_row], ignore_index=True
         )
-        st.success(
-            f'Payment of KES {fee_amount:,} verified via M-Pesa code'
-            f' **{mpesa_code.upper()}** for **{new_trader}**! Record synced'
-            ' to county master database.'
-        )
 
-        # --- AUTOMATED RECEIPT WITH M-PESA VALIDATION ---
-        receipt_text = f"""
+        # Store receipt content safely in session state outside the form block
+        st.session_state['last_filename'] = f'Mpesa_Receipt_{new_trader}.txt'
+        st.session_state['last_receipt'] = f"""
 ==================================================
    COUNTY WEIGHTS & MEASURES DIGITAL REGISTRY
           OFFICIAL CASHLESS M-PESA RECEIPT
@@ -239,9 +241,19 @@ Certified by: County Field Inspector Unit
 Status: Logged & Verified in Master Database
 ==================================================
 """
-        st.download_button(
-            label='📥 Download Official M-Pesa Receipt (TXT)',
-            data=receipt_text,
-            file_name=f'Mpesa_Receipt_{new_trader}.txt',
-            mime='text/plain',
+        st.success(
+            f'Payment of KES {fee_amount:,} verified via M-Pesa code'
+            f' **{mpesa_code.upper()}** for **{new_trader}**! Record synced'
+            ' to county master database.'
         )
+
+  # --- DOWNLOAD BUTTON PLACED OUTSIDE THE FORM ---
+  if st.session_state['last_receipt'] is not None:
+    st.markdown('---')
+    st.subheader('📥 Ready for Issuance')
+    st.download_button(
+        label='Download Official M-Pesa Receipt (TXT)',
+        data=st.session_state['last_receipt'],
+        file_name=st.session_state['last_filename'],
+        mime='text/plain',
+    )
