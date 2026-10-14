@@ -52,7 +52,7 @@ if not st.session_state["authenticated"]:
 @st.cache_data
 def load_mock_data():
   np.random.seed(42)
-  n_rows = 45000
+  n_rows = 4500
 
   years = np.random.choice(
       range(2011, 2027),
