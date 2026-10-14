@@ -7,22 +7,94 @@ import streamlit as st
 
 # Configure page layout
 st.set_page_config(
-    page_title="County Weights & Measures Digital Registry",
+    page_title="County Government of Nyeri | Weights & Measures Registry",
     page_icon="⚖️",
     layout="wide",
 )
 
+# --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
+nyeri_custom_css = """
+<style>
+    /* Nyeri Brand Palette: 
+       Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
 
-# --- 0. SECURE GOVERNMENT AUTHENTICATION GATE ---
+    /* Primary Headers in Nyeri Forest Green */
+    h1, h2, h3 {
+        color: #006837 !important;
+        font-weight: 700 !important;
+    }
+
+    /* Style Primary Form Buttons in Nyeri Forest Green */
+    div.stButton > button:first-child {
+        background-color: #006837 !important;
+        color: white !important;
+        border-radius: 6px !important;
+        border: none !important;
+        font-weight: bold !important;
+        padding: 0.5rem 1rem !important;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #004d28 !important;
+        color: #FFD700 !important; /* Gold highlight on hover */
+    }
+
+    /* Sidebar Background - Nyeri Dark Navy/Blue Accent */
+    section[data-testid="stSidebar"] {
+        background-color: #0B192C !important;
+    }
+
+    /* Metric Value Styling */
+    div[data-testid="stMetricValue"] {
+        color: #006837 !important;
+        font-weight: bold !important;
+    }
+
+    /* Tab Selected Styling */
+    button[aria-selected="true"] {
+        border-bottom-color: #006837 !important;
+        color: #006837 !important;
+        font-weight: bold !important;
+    }
+
+    /* County Banner Badge */
+    .nyeri-banner {
+        background: linear-gradient(90deg, #006837 0%, #0056B3 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .nyeri-banner h4 {
+        color: white !important;
+        margin: 0;
+    }
+</style>
+"""
+st.markdown(nyeri_custom_css, unsafe_allow_html=True)
+
+
+# --- 1. SECURE GOVERNMENT AUTHENTICATION GATE ---
 if "authenticated" not in st.session_state:
   st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-  st.title("⚖️ County Government of Nyeri")
-  st.subheader("Weights & Measures Digital Registry - Secure Access")
   st.markdown(
-      "Restricted Government Portal. Authorized personnel only. Please enter"
-      " your credentials to proceed."
+      """
+    <div class="nyeri-banner">
+        <h4>⚖️ COUNTY GOVERNMENT OF NYERI</h4>
+        <span>Department of Trade, Tourism & Co-operative Development</span>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+  st.subheader("Weights & Measures Digital Registry - Staff Portal Access")
+  st.markdown(
+      "Restricted Government System. Authorized personnel only. Please enter"
+      " your staff credentials to proceed."
   )
 
   with st.form("login_form"):
@@ -33,10 +105,9 @@ if not st.session_state["authenticated"]:
     login_btn = st.form_submit_button("Authenticate & Enter Portal")
 
     if login_btn:
-      # Validation check for demo purposes
       if username.strip().upper().startswith("NYR_") and len(password) >= 4:
         st.session_state["authenticated"] = True
-        st.success("Access Granted. Loading secure county registry...")
+        st.success("Access Granted. Loading secure Nyeri County registry...")
         st.rerun()
       else:
         st.error(
@@ -44,11 +115,10 @@ if not st.session_state["authenticated"]:
             " hint: Use ID starting with 'NYR_' and a 4+ digit PIN)"
         )
 
-  # Halt code execution here so unauthorized users cannot see the dashboard
   st.stop()
 
 
-# --- 1. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
+# --- 2. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
 @st.cache_data
 def load_mock_data():
   np.random.seed(42)
@@ -106,14 +176,13 @@ def load_mock_data():
   return df
 
 
-# Initialize Session State so added entries persist across actions
 if "df" not in st.session_state:
   st.session_state["df"] = load_mock_data()
 
 df = st.session_state["df"]
 
 
-# --- 2. PDF RECEIPT GENERATOR FUNCTION ---
+# --- 3. PDF RECEIPT GENERATOR FUNCTION ---
 def generate_pdf_receipt(r):
   buffer = io.BytesIO()
   c = canvas.Canvas(buffer, pagesize=(226, 420))
@@ -168,8 +237,8 @@ def generate_pdf_receipt(r):
   return buffer.getvalue()
 
 
-# --- 3. SIDEBAR FILTERS & SESSION CONTROL ---
-st.sidebar.header("🔍 Registry Filter Controls")
+# --- 4. SIDEBAR FILTERS & CONTROL PANEL ---
+st.sidebar.header("🔍 Registry Controls")
 
 if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
@@ -179,13 +248,12 @@ selected_years = st.sidebar.slider(
     "Select Year Range", 2015, 2026, (2015, 2026)
 )
 selected_subcounty = st.sidebar.selectbox(
-    "Filter by Region", ["All"] + list(df["Sub_County"].unique())
+    "Filter by Sub-County", ["All"] + list(df["Sub_County"].unique())
 )
 selected_status = st.sidebar.selectbox(
     "Compliance Status", ["All"] + list(df["Inspection_Status"].unique())
 )
 
-# Apply filters
 filtered_df = df[
     (df["Year"] >= selected_years[0]) & (df["Year"] <= selected_years[1])
 ]
@@ -194,15 +262,24 @@ if selected_subcounty != "All":
 if selected_status != "All":
   filtered_df = filtered_df[filtered_df["Inspection_Status"] == selected_status]
 
-# --- 4. MAIN DASHBOARD HEADER ---
-st.title("⚖️ County Weights & Measures Digital Transformation Hub")
+# --- 5. MAIN DASHBOARD HEADER WITH OFFICIAL NYERI BANNER ---
 st.markdown(
-    "*Replacing manual paper records with real-time analytics, duplicate"
-    " prevention, and cashless M-Pesa revenue tracking.*"
+    """
+<div class="nyeri-banner">
+    <h4>COUNTY GOVERNMENT OF NYERI | DEPARTMENT OF TRADE</h4>
+    <span>Official Weights & Measures Digital Portal</span>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.title("⚖️ Digital Verification & Audit Hub")
+st.markdown(
+    "*Replacing manual paper logbooks with automated fraud prevention, real-time analytics, and cashless revenue management.*"
 )
 st.markdown("---")
 
-# --- 5. TOP-LEVEL METRICS (KPIs) ---
+# --- 6. TOP-LEVEL METRICS (KPIs) ---
 total_inspections = len(filtered_df)
 total_revenue = filtered_df["Fee_Collected"].sum()
 compliance_rate = (
@@ -217,25 +294,24 @@ compliance_rate = (
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Inspections Logged", f"{total_inspections:,}")
-col2.metric("Estimated Revenue Collected", f"KES {total_revenue:,.2f}")
+col2.metric("Revenue Collected", f"KES {total_revenue:,.2f}")
 col3.metric("Compliance Rate", f"{compliance_rate:.1f}%")
 
 st.markdown("---")
 
-# --- 6. TABS FOR ORGANIZED NAVIGATION ---
+# --- 7. TABS FOR ORGANIZED NAVIGATION ---
 tab1, tab2, tab3 = st.tabs([
-    "📈 Trends & Analytics",
-    "📂 Digital Archive (Search)",
-    "📝 Field Inspection Portal (Cashless)",
+    "📈 Revenue & Compliance Trends",
+    "📂 Digital Archive (Search & Export)",
+    "📝 Field Inspection Portal (M-Pesa Verified)",
 ])
 
 with tab1:
-  st.subheader("Historical Inspection & Revenue Growth")
-
+  st.subheader("Historical Verification Performance")
   col_a, col_b = st.columns(2)
 
   with col_a:
-    st.markdown("**Inspections per Year**")
+    st.markdown("**Inspections Conducted per Year**")
     yearly_counts = filtered_df.groupby("Year").size()
     st.bar_chart(yearly_counts)
 
@@ -245,7 +321,7 @@ with tab1:
     st.line_chart(yearly_revenue)
 
 with tab2:
-  st.subheader("Master Database Lookup (Replaces Physical Books)")
+  st.subheader("Master Verification Registry")
   search_query = st.text_input(
       "Search Trader Name or M-Pesa Code:",
       placeholder="Type trader name or code...",
@@ -259,22 +335,22 @@ with tab2:
     ]
 
   st.dataframe(display_df, use_container_width=True)
-  st.caption(f"Showing {len(display_df)} matching records.")
+  st.caption(f"Displaying {len(display_df)} official records.")
 
   csv_master = display_df.to_csv(index=False).encode("utf-8")
   st.download_button(
       label="📥 Export Filtered Audit Report (CSV)",
       data=csv_master,
-      file_name="county_weights_audit_report.csv",
+      file_name="nyeri_county_weights_report.csv",
       mime="text/csv",
   )
 
 with tab3:
-  st.subheader("Simulate New Field Entry & M-Pesa Payment")
+  st.subheader("Log Field Verification & Cashless Receipt")
   st.markdown(
-      "All inspection fees are strictly cashless via M-Pesa. The system"
-      " automatically runs duplicate checks and computes annual recertification"
-      " dates."
+      "All stamping fees are strictly processed via M-Pesa. System"
+      " automatically checks for code reuse and calculates 1-year"
+      " re-verification due dates."
   )
 
   if "last_receipt_data" not in st.session_state:
@@ -296,135 +372,3 @@ with tab3:
       )
       phone_number = st.text_input(
           "Trader Phone Number (M-Pesa)", placeholder="0712345678"
-      )
-    with f_col2:
-      new_subcounty = st.selectbox(
-          "Sub-County",
-          ["Central Ward", "North Sub-County", "South Market", "East Division"],
-      )
-      new_status = st.selectbox(
-          "Inspection Result", ["Passed", "Rejected", "Conditional Pass"]
-      )
-      inspection_date_obj = st.date_input(
-          "Inspection Date", value=datetime.today()
-      )
-      mpesa_code = st.text_input(
-          "M-Pesa Confirmation Code", placeholder="e.g., QHC792XKL1"
-      )
-
-    submitted = st.form_submit_button("Verify Payment & Submit Digital Record")
-
-    if submitted:
-      clean_code = mpesa_code.strip().upper()
-      if new_trader.strip() == "":
-        st.warning("Please enter a valid Trader / Business Name.")
-      elif len(clean_code) < 8:
-        st.error(
-            "⚠️ Transaction Blocked: A valid M-Pesa confirmation code is"
-            " required (Strictly No Cash Allowed)."
-        )
-      elif clean_code in st.session_state["df"]["Mpesa_Code"].values:
-        st.error(
-            f"🚨 FRAUD ALERT: M-Pesa code **{clean_code}** has already been"
-            " used for a previous inspection! Code reuse is strictly locked."
-        )
-      else:
-        fee_amount = 3000 if new_status == "Passed" else 1000
-        inspection_date_str = inspection_date_obj.strftime("%Y-%m-%d")
-        extracted_year = inspection_date_obj.year
-        next_due_str = (inspection_date_obj + timedelta(days=365)).strftime(
-            "%Y-%m-%d"
-        )
-
-        new_row = pd.DataFrame({
-            "Year": [extracted_year],
-            "Trader_Name": [new_trader],
-            "Sub_County": [new_subcounty],
-            "Equipment_Type": [new_equipment],
-            "Inspection_Status": [new_status],
-            "Fee_Collected": [fee_amount],
-            "Mpesa_Code": [clean_code],
-            "Next_Due_Date": [next_due_str],
-        })
-
-        st.session_state["df"] = pd.concat(
-            [st.session_state["df"], new_row], ignore_index=True
-        )
-
-        st.session_state["last_receipt_data"] = {
-            "trader": new_trader,
-            "phone": phone_number,
-            "subcounty": new_subcounty,
-            "equipment": new_equipment,
-            "status": new_status,
-            "fee": fee_amount,
-            "code": clean_code,
-            "date": inspection_date_str,
-            "due": next_due_str,
-        }
-        st.success(
-            f"Payment of KES {fee_amount:,} verified via M-Pesa code"
-            f" **{clean_code}**! Record logged to database."
-        )
-
-  # --- DISPLAY SUPERMARKET-STYLE PREVIEW CARD & PDF DOWNLOAD ---
-  if st.session_state["last_receipt_data"] is not None:
-    r = st.session_state["last_receipt_data"]
-    st.markdown("---")
-    st.subheader("🧾 Official Certificate of Verification (Receipt Preview)")
-
-    receipt_html = f"""
-        <style>
-        .receipt-box {{
-            border: 2px dashed #333;
-            padding: 20px;
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #fafafa;
-            color: #111;
-            max-width: 450px;
-            margin: auto;
-            border-radius: 6px;
-        }}
-        .receipt-header {{
-            text-align: center;
-            font-weight: bold;
-        }}
-        </style>
-        
-        <div class="receipt-box">
-            <div class="receipt-header">
-                <p style="margin:0; font-size:16px;"><b>COUNTY GOVERNMENT OF NYERI</b></p>
-                <p style="margin:0; font-size:12px;">DEPARTMENT OF TRADE & CO-OPERATIVES</p>
-                <p style="margin:0; font-size:12px;"><b>WEIGHTS & MEASURES DIVISION</b></p>
-                <p>----------------------------------------</p>
-            </div>
-            <p style="margin:4px 0;"><b>Certificate No:</b> NYR-WM-{r['code']}</p>
-            <p style="margin:4px 0;"><b>Date Issued:</b> {r['date']}</p>
-            <p>----------------------------------------</p>
-            <p style="margin:4px 0;"><b>Business Name:</b> {r['trader']}</p>
-            <p style="margin:4px 0;"><b>Phone Contact:</b> {r['phone']}</p>
-            <p style="margin:4px 0;"><b>Sub-County:</b> {r['subcounty']}</p>
-            <p style="margin:4px 0;"><b>Equipment Type:</b> {r['equipment']}</p>
-            <p style="margin:4px 0;"><b>Inspection Status:</b> <b>{r['status']}</b></p>
-            <p>----------------------------------------</p>
-            <p style="margin:4px 0;"><b>Stamping Fee Paid:</b> KES {r['fee']:,}</p>
-            <p style="margin:4px 0;"><b>M-Pesa Reference:</b> {r['code']}</p>
-            <p style="margin:4px 0; color: #b22222;"><b>Next Verification Due:</b> {r['due']}</p>
-            <p>----------------------------------------</p>
-            <div class="receipt-header">
-                <p style="margin:0; font-size:11px;"><i>Status: Verified & Synced to County Server</i></p>
-                <p style="margin:0; font-size:10px;">*** OFFICIAL DIGITAL STAMP ***</p>
-            </div>
-        </div>
-        """
-    st.markdown(receipt_html, unsafe_allow_html=True)
-
-    pdf_bytes = generate_pdf_receipt(r)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button(
-        label="📥 Download Official Receipt (PDF)",
-        data=pdf_bytes,
-        file_name=f"Certificate_{r['trader']}_{r['code']}.pdf",
-        mime="application/pdf",
-    )
