@@ -13,6 +13,41 @@ st.set_page_config(
 )
 
 
+# --- 0. SECURE GOVERNMENT AUTHENTICATION GATE ---
+if "authenticated" not in st.session_state:
+  st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+  st.title("⚖️ County Government of Nyeri")
+  st.subheader("Weights & Measures Digital Registry - Secure Access")
+  st.markdown(
+      "Restricted Government Portal. Authorized personnel only. Please enter"
+      " your credentials to proceed."
+  )
+
+  with st.form("login_form"):
+    username = st.text_input(
+        "Staff / Inspector ID", placeholder="e.g., NYR_INSP_042"
+    )
+    password = st.text_input("Secure PIN / Password", type="password")
+    login_btn = st.form_submit_button("Authenticate & Enter Portal")
+
+    if login_btn:
+      # Validation check for demo purposes
+      if username.strip().upper().startswith("NYR_") and len(password) >= 4:
+        st.session_state["authenticated"] = True
+        st.success("Access Granted. Loading secure county registry...")
+        st.rerun()
+      else:
+        st.error(
+            "⚠️ Authentication Failed: Invalid Staff ID or secure PIN. (Demo"
+            " hint: Use ID starting with 'NYR_' and a 4+ digit PIN)"
+        )
+
+  # Halt code execution here so unauthorized users cannot see the dashboard
+  st.stop()
+
+
 # --- 1. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
 @st.cache_data
 def load_mock_data():
@@ -81,7 +116,6 @@ df = st.session_state["df"]
 # --- 2. PDF RECEIPT GENERATOR FUNCTION ---
 def generate_pdf_receipt(r):
   buffer = io.BytesIO()
-  # Standard thermal receipt canvas width (226 points) & height (420 points)
   c = canvas.Canvas(buffer, pagesize=(226, 420))
   c.setFont("Courier-Bold", 10)
 
@@ -134,8 +168,12 @@ def generate_pdf_receipt(r):
   return buffer.getvalue()
 
 
-# --- 3. SIDEBAR FILTERS (The Control Panel) ---
+# --- 3. SIDEBAR FILTERS & SESSION CONTROL ---
 st.sidebar.header("🔍 Registry Filter Controls")
+
+if st.sidebar.button("🔒 Secure Logout"):
+  st.session_state["authenticated"] = False
+  st.rerun()
 
 selected_years = st.sidebar.slider(
     "Select Year Range", 2015, 2026, (2015, 2026)
@@ -381,7 +419,6 @@ with tab3:
         """
     st.markdown(receipt_html, unsafe_allow_html=True)
 
-    # Generate PDF bytes
     pdf_bytes = generate_pdf_receipt(r)
 
     st.markdown("<br>", unsafe_allow_html=True)
