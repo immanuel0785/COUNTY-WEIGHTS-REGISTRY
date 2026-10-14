@@ -373,3 +373,134 @@ with tab3:
       phone_number = st.text_input(
           "Trader Phone Number (M-Pesa)", placeholder="0712345678"
       )
+    with f_col2:
+      new_subcounty = st.selectbox(
+          "Sub-County",
+          ["Central Ward", "North Sub-County", "South Market", "East Division"],
+      )
+      new_status = st.selectbox(
+          "Inspection Result", ["Passed", "Rejected", "Conditional Pass"]
+      )
+      inspection_date_obj = st.date_input(
+          "Inspection Date", value=datetime.today()
+      )
+      mpesa_code = st.text_input(
+          "M-Pesa Confirmation Code", placeholder="e.g., QHC792XKL1"
+      )
+
+    submitted = st.form_submit_button("Verify Payment & Issue Certificate")
+
+    if submitted:
+      clean_code = mpesa_code.strip().upper()
+      if new_trader.strip() == "":
+        st.warning("Please enter a valid Trader / Business Name.")
+      elif len(clean_code) < 8:
+        st.error(
+            "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required"
+            " (Cash payments are strictly prohibited)."
+        )
+      elif clean_code in st.session_state["df"]["Mpesa_Code"].values:
+        st.error(
+            f"🚨 FRAUD ALERT: M-Pesa code **{clean_code}** has already been"
+            " processed! Code reuse is strictly locked."
+        )
+      else:
+        fee_amount = 3000 if new_status == "Passed" else 1000
+        inspection_date_str = inspection_date_obj.strftime("%Y-%m-%d")
+        extracted_year = inspection_date_obj.year
+        next_due_str = (inspection_date_obj + timedelta(days=365)).strftime(
+            "%Y-%m-%d"
+        )
+
+        new_row = pd.DataFrame({
+            "Year": [extracted_year],
+            "Trader_Name": [new_trader],
+            "Sub_County": [new_subcounty],
+            "Equipment_Type": [new_equipment],
+            "Inspection_Status": [new_status],
+            "Fee_Collected": [fee_amount],
+            "Mpesa_Code": [clean_code],
+            "Next_Due_Date": [next_due_str],
+        })
+
+        st.session_state["df"] = pd.concat(
+            [st.session_state["df"], new_row], ignore_index=True
+        )
+
+        st.session_state["last_receipt_data"] = {
+            "trader": new_trader,
+            "phone": phone_number,
+            "subcounty": new_subcounty,
+            "equipment": new_equipment,
+            "status": new_status,
+            "fee": fee_amount,
+            "code": clean_code,
+            "date": inspection_date_str,
+            "due": next_due_str,
+        }
+        st.success(
+            f"Payment of KES {fee_amount:,} verified via M-Pesa code"
+            f" **{clean_code}**! Digital entry logged."
+        )
+
+  # --- DISPLAY SUPERMARKET-STYLE PREVIEW CARD & PDF DOWNLOAD ---
+  if st.session_state["last_receipt_data"] is not None:
+    r = st.session_state["last_receipt_data"]
+    st.markdown("---")
+    st.subheader("🧾 Verification Certificate Preview")
+
+    receipt_html = f"""
+        <style>
+        .receipt-box {{
+            border: 2px dashed #006837;
+            padding: 20px;
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #fafafa;
+            color: #111;
+            max-width: 450px;
+            margin: auto;
+            border-radius: 6px;
+        }}
+        .receipt-header {{
+            text-align: center;
+            font-weight: bold;
+        }}
+        </style>
+        
+        <div class="receipt-box">
+            <div class="receipt-header">
+                <p style="margin:0; font-size:16px; color:#006837;"><b>COUNTY GOVERNMENT OF NYERI</b></p>
+                <p style="margin:0; font-size:12px;">DEPARTMENT OF TRADE & CO-OPERATIVES</p>
+                <p style="margin:0; font-size:12px;"><b>WEIGHTS & MEASURES DIVISION</b></p>
+                <p>----------------------------------------</p>
+            </div>
+            <p style="margin:4px 0;"><b>Certificate No:</b> NYR-WM-{r['code']}</p>
+            <p style="margin:4px 0;"><b>Date Issued:</b> {r['date']}</p>
+            <p>----------------------------------------</p>
+            <p style="margin:4px 0;"><b>Business Name:</b> {r['trader']}</p>
+            <p style="margin:4px 0;"><b>Phone Contact:</b> {r['phone']}</p>
+            <p style="margin:4px 0;"><b>Sub-County:</b> {r['subcounty']}</p>
+            <p style="margin:4px 0;"><b>Equipment Type:</b> {r['equipment']}</p>
+            <p style="margin:4px 0;"><b>Inspection Status:</b> <b>{r['status']}</b></p>
+            <p>----------------------------------------</p>
+            <p style="margin:4px 0;"><b>Stamping Fee Paid:</b> KES {r['fee']:,}</p>
+            <p style="margin:4px 0;"><b>M-Pesa Reference:</b> {r['code']}</p>
+            <p style="margin:4px 0; color: #b22222;"><b>Next Verification Due:</b> {r['due']}</p>
+            <p>----------------------------------------</p>
+            <div class="receipt-header">
+                <p style="margin:0; font-size:11px;"><i>Status: Verified & Synced to County Server</i></p>
+                <p style="margin:0; font-size:10px;">*** OFFICIAL DIGITAL STAMP ***</p>
+            </div>
+        </div>
+        """
+    st.markdown(receipt_html, unsafe_allow_html=True)
+
+    pdf_bytes = generate_pdf_receipt(r)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button(
+        label="📥 Download Official Receipt (PDF)",
+        data=pdf_bytes,
+        file_name=f"Certificate_{r['trader']}_{r['code']}.pdf",
+        mime="application/pdf",
+    )
