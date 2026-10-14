@@ -55,7 +55,7 @@ def load_mock_data():
   n_rows = 4500
 
   years = np.random.choice(
-      range(2011, 2027),
+      range(2015, 2027),
       size=n_rows,
       p=[0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.05],
   )
