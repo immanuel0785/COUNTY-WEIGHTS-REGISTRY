@@ -372,3 +372,4 @@ with tab3:
       )
       phone_number = st.text_input(
           "Trader Phone Number (M-Pesa)", placeholder="0712345678"
+      )
