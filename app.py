@@ -76,9 +76,33 @@ nyeri_custom_css = """
 st.markdown(nyeri_custom_css, unsafe_allow_html=True)
 
 
-# --- 1. SECURE GOVERNMENT AUTHENTICATION GATE ---
+# --- 1. SECURE GOVERNMENT AUTHENTICATION GATE & USER ROLES ---
 if "authenticated" not in st.session_state:
   st.session_state["authenticated"] = False
+  st.session_state["user_name"] = ""
+  st.session_state["user_role"] = ""
+  st.session_state["user_subcounty"] = ""
+
+VALID_STAFF_DIRECTORY = {
+    "NYR_INSP_042": {
+        "pin": "4200",
+        "name": "Insp. Mwangi",
+        "role": "Senior Field Inspector",
+        "subcounty": "Karatina / Mathira East",
+    },
+    "NYR_INSP_018": {
+        "pin": "1800",
+        "name": "Insp. Ndirangu",
+        "role": "Field Inspector",
+        "subcounty": "Othaya Town",
+    },
+    "NYR_ADMIN_001": {
+        "pin": "0001",
+        "name": "Director of Trade",
+        "role": "County Administrator",
+        "subcounty": "All Sub-Counties",
+    },
+}
 
 if not st.session_state["authenticated"]:
   st.markdown(
@@ -94,25 +118,45 @@ if not st.session_state["authenticated"]:
   st.subheader("Weights & Measures Digital Registry - Staff Portal Access")
   st.markdown(
       "Restricted Government System. Authorized personnel only. Please enter"
-      " your staff credentials to proceed."
+      " your official staff ID and secure PIN."
+  )
+
+  st.info(
+      "💡 **Demo Login Credentials for Presentation:**\n"
+      "• **Administrator:** ID: `NYR_ADMIN_001` | PIN: `0001`\n"
+      "• **Karatina Inspector:** ID: `NYR_INSP_042` | PIN: `4200`\n"
+      "• **Othaya Inspector:** ID: `NYR_INSP_018` | PIN: `1800`"
   )
 
   with st.form("login_form"):
     username = st.text_input(
-        "Staff / Inspector ID", placeholder="e.g., NYR_INSP_042"
+        "Staff / Inspector ID", placeholder="e.g., NYR_ADMIN_001"
     )
     password = st.text_input("Secure PIN / Password", type="password")
     login_btn = st.form_submit_button("Authenticate & Enter Portal")
 
     if login_btn:
-      if username.strip().upper().startswith("NYR_") and len(password) >= 4:
+      clean_user = username.strip().upper()
+      if (
+          clean_user in VALID_STAFF_DIRECTORY
+          and password == VALID_STAFF_DIRECTORY[clean_user]["pin"]
+      ):
         st.session_state["authenticated"] = True
-        st.success("Access Granted. Loading secure Nyeri County registry...")
+        st.session_state["user_name"] = VALID_STAFF_DIRECTORY[clean_user]["name"]
+        st.session_state["user_role"] = VALID_STAFF_DIRECTORY[clean_user][
+            "role"
+        ]
+        st.session_state["user_subcounty"] = VALID_STAFF_DIRECTORY[clean_user][
+            "subcounty"
+        ]
+        st.success(
+            f"Access Granted. Welcome back, {st.session_state['user_name']}!"
+        )
         st.rerun()
       else:
         st.error(
-            "⚠️ Authentication Failed: Invalid Staff ID or secure PIN. (Demo"
-            " hint: Use ID starting with 'NYR_' and a 4+ digit PIN)"
+            "⚠️ Authentication Failed: Invalid Staff ID or secure PIN. Please"
+            " use the official demo credentials provided above."
         )
 
   st.stop()
@@ -187,7 +231,6 @@ if "df" not in st.session_state:
 
 df = st.session_state["df"]
 
-# Initialize Schedule Data in State
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
       "Sub_County": [
@@ -268,6 +311,10 @@ def generate_pdf_receipt(r):
 
 # --- 4. SIDEBAR FILTERS & CONTROL PANEL ---
 st.sidebar.header("🔍 Registry Controls")
+st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
+st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
+st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
+st.sidebar.markdown("---")
 
 if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
@@ -304,7 +351,8 @@ st.markdown(
 
 st.title("⚖️ Digital Verification & Audit Hub")
 st.markdown(
-    "*Replacing manual paper logbooks with automated fraud prevention, real-time analytics, circuit scheduling, and cashless revenue management.*"
+    "*Replacing manual paper logbooks with automated fraud prevention, real-time"
+    " analytics, circuit scheduling, and cashless revenue management.*"
 )
 st.markdown("---")
 
@@ -479,7 +527,6 @@ with tab3:
             f" **{clean_code}**! Digital entry logged."
         )
 
-  # --- DISPLAY SUPERMARKET-STYLE PREVIEW CARD & PDF DOWNLOAD ---
   if st.session_state["last_receipt_data"] is not None:
     r = st.session_state["last_receipt_data"]
     st.markdown("---")
@@ -541,9 +588,10 @@ with tab3:
         mime="application/pdf",
     )
 
-# --- 8. TAB 4: INSPECTION CIRCUITS & TRADER SMS NOTICES ---
 with tab4:
-  st.subheader("📅 Public Inspection Schedules & Stamping Circuit Management")
+  st.subheader(
+      "📅 Public Inspection Schedules & Stamping Circuit Management"
+  )
   st.markdown(
       "Publish upcoming inspection centers, schedule field circuits per"
       " sub-county, and dispatch automated SMS notifications to registered"
@@ -556,7 +604,6 @@ with tab4:
     st.markdown("### 📌 Published County Stamping Circuits")
     st.dataframe(st.session_state["schedules"], use_container_width=True)
 
-    # Schedule Creation Form
     with st.expander("➕ Schedule New Stamping Circuit"):
       with st.form("new_schedule_form"):
         sc_subcounty = st.selectbox(
@@ -612,16 +659,16 @@ with tab4:
         " alerts to traders whose re-verification is due."
     )
 
-    selected_circuit_idx = st.selectbox(
-        "Select Active Circuit Notice:",
-        options=range(len(st.session_state["schedules"])),
-        format_func=lambda i: (
-            f"{st.session_state['schedules'].iloc[i]['Sub_County']} -"
-            f" {st.session_state['schedules'].iloc[i]['Verification_Center']}"
-        ),
-    )
-
     if len(st.session_state["schedules"]) > 0:
+      selected_circuit_idx = st.selectbox(
+          "Select Active Circuit Notice:",
+          options=range(len(st.session_state["schedules"])),
+          format_func=lambda i: (
+              f"{st.session_state['schedules'].iloc[i]['Sub_County']} -"
+              f" {st.session_state['schedules'].iloc[i]['Verification_Center']}"
+          ),
+      )
+
       c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
 
       sms_template = (
