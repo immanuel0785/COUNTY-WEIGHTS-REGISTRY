@@ -118,7 +118,7 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
+# --- 2. GENERATE SIMULATED HISTORICAL DATA & SCHEDULES ---
 @st.cache_data
 def load_mock_data():
   np.random.seed(42)
@@ -131,7 +131,13 @@ def load_mock_data():
   )
   traders = [f"Trader_{np.random.randint(1000, 9999)}" for _ in range(n_rows)]
   sub_counties = np.random.choice(
-      ["Central Ward", "North Sub-County", "South Market", "East Division"],
+      [
+          "Karatina / Mathira East",
+          "Othaya Town",
+          "Mukurwe-ini Centre",
+          "Nyeri Central / Town",
+          "Tetu Sub-County",
+      ],
       size=n_rows,
   )
   equipment = np.random.choice(
@@ -180,6 +186,29 @@ if "df" not in st.session_state:
   st.session_state["df"] = load_mock_data()
 
 df = st.session_state["df"]
+
+# Initialize Schedule Data in State
+if "schedules" not in st.session_state:
+  st.session_state["schedules"] = pd.DataFrame({
+      "Sub_County": [
+          "Karatina / Mathira East",
+          "Othaya Town",
+          "Nyeri Central / Town",
+      ],
+      "Verification_Center": [
+          "Karatina Open Market Hall",
+          "Othaya Social Hall",
+          "Nyeri Town Sub-County Office",
+      ],
+      "Start_Date": ["2026-11-01", "2026-11-15", "2026-12-01"],
+      "End_Date": ["2026-11-05", "2026-11-18", "2026-12-05"],
+      "Assigned_Inspector": [
+          "Insp. Mwangi (ID: 042)",
+          "Insp. Ndirangu (ID: 018)",
+          "Insp. Wanjiku (ID: 025)",
+      ],
+      "Status": ["Scheduled", "Scheduled", "Upcoming"],
+  })
 
 
 # --- 3. PDF RECEIPT GENERATOR FUNCTION ---
@@ -275,7 +304,7 @@ st.markdown(
 
 st.title("⚖️ Digital Verification & Audit Hub")
 st.markdown(
-    "*Replacing manual paper logbooks with automated fraud prevention, real-time analytics, and cashless revenue management.*"
+    "*Replacing manual paper logbooks with automated fraud prevention, real-time analytics, circuit scheduling, and cashless revenue management.*"
 )
 st.markdown("---")
 
@@ -300,10 +329,11 @@ col3.metric("Compliance Rate", f"{compliance_rate:.1f}%")
 st.markdown("---")
 
 # --- 7. TABS FOR ORGANIZED NAVIGATION ---
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📈 Revenue & Compliance Trends",
     "📂 Digital Archive (Search & Export)",
     "📝 Field Inspection Portal (M-Pesa Verified)",
+    "📅 Circuit Schedules & SMS Notices",
 ])
 
 with tab1:
@@ -376,7 +406,13 @@ with tab3:
     with f_col2:
       new_subcounty = st.selectbox(
           "Sub-County",
-          ["Central Ward", "North Sub-County", "South Market", "East Division"],
+          [
+              "Karatina / Mathira East",
+              "Othaya Town",
+              "Mukurwe-ini Centre",
+              "Nyeri Central / Town",
+              "Tetu Sub-County",
+          ],
       )
       new_status = st.selectbox(
           "Inspection Result", ["Passed", "Rejected", "Conditional Pass"]
@@ -504,3 +540,104 @@ with tab3:
         file_name=f"Certificate_{r['trader']}_{r['code']}.pdf",
         mime="application/pdf",
     )
+
+# --- 8. TAB 4: INSPECTION CIRCUITS & TRADER SMS NOTICES ---
+with tab4:
+  st.subheader("📅 Public Inspection Schedules & Stamping Circuit Management")
+  st.markdown(
+      "Publish upcoming inspection centers, schedule field circuits per"
+      " sub-county, and dispatch automated SMS notifications to registered"
+      " traders."
+  )
+
+  col_sched1, col_sched2 = st.columns([3, 2])
+
+  with col_sched1:
+    st.markdown("### 📌 Published County Stamping Circuits")
+    st.dataframe(st.session_state["schedules"], use_container_width=True)
+
+    # Schedule Creation Form
+    with st.expander("➕ Schedule New Stamping Circuit"):
+      with st.form("new_schedule_form"):
+        sc_subcounty = st.selectbox(
+            "Target Sub-County",
+            [
+                "Karatina / Mathira East",
+                "Othaya Town",
+                "Mukurwe-ini Centre",
+                "Nyeri Central / Town",
+                "Tetu Sub-County",
+            ],
+        )
+        sc_center = st.text_input(
+            "Inspection Center / Venue", placeholder="e.g., Karatina Social Hall"
+        )
+        sc_col_dates1, sc_col_dates2 = st.columns(2)
+        with sc_col_dates1:
+          sc_start = st.date_input("Start Date", value=datetime.today())
+        with sc_col_dates2:
+          sc_end = st.date_input(
+              "End Date", value=datetime.today() + timedelta(days=5)
+          )
+        sc_inspector = st.text_input(
+            "Assigned Lead Inspector", placeholder="e.g., Insp. Kiptoo (ID: 031)"
+        )
+
+        sc_submit = st.form_submit_button("Publish Circuit Schedule")
+
+        if sc_submit:
+          if sc_center.strip() == "":
+            st.warning("Please enter a valid venue or inspection center.")
+          else:
+            new_sched = pd.DataFrame({
+                "Sub_County": [sc_subcounty],
+                "Verification_Center": [sc_center],
+                "Start_Date": [sc_start.strftime("%Y-%m-%d")],
+                "End_Date": [sc_end.strftime("%Y-%m-%d")],
+                "Assigned_Inspector": [sc_inspector],
+                "Status": ["Scheduled"],
+            })
+            st.session_state["schedules"] = pd.concat(
+                [st.session_state["schedules"], new_sched], ignore_index=True
+            )
+            st.success(
+                f"Circuit published for {sc_subcounty} at {sc_center}!"
+            )
+            st.rerun()
+
+  with col_sched2:
+    st.markdown("### 📱 Automated Trader SMS Dispatcher")
+    st.markdown(
+        "Select a published circuit to generate and broadcast automated SMS"
+        " alerts to traders whose re-verification is due."
+    )
+
+    selected_circuit_idx = st.selectbox(
+        "Select Active Circuit Notice:",
+        options=range(len(st.session_state["schedules"])),
+        format_func=lambda i: (
+            f"{st.session_state['schedules'].iloc[i]['Sub_County']} -"
+            f" {st.session_state['schedules'].iloc[i]['Verification_Center']}"
+        ),
+    )
+
+    if len(st.session_state["schedules"]) > 0:
+      c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
+
+      sms_template = (
+          f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
+          f" for {c_row['Sub_County']} will take place at"
+          f" {c_row['Verification_Center']} from {c_row['Start_Date']} to"
+          f" {c_row['End_Date']}. All trade weighing equipment must be"
+          f" presented. Payment via M-Pesa only. Mandatory compliance."
+      )
+
+      st.text_area(
+          "Generated SMS Broadcast Notice:", value=sms_template, height=140
+      )
+
+      if st.button("📲 Broadcast SMS Notice to Regional Traders"):
+        st.success(
+            f"SMS dispatch initiated! Notice queued for registered traders in"
+            f" {c_row['Sub_County']}."
+        )
