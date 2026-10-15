@@ -247,7 +247,7 @@ if "schedules" not in st.session_state:
       "End_Date": ["2026-11-05", "2026-11-18", "2026-12-05"],
       "Assigned_Inspector": [
           "Insp. Mwangi (ID: 042)",
-          "Insp. Ndirangu (ID: 018)",
+          "Insp. Martin (ID: 018)",
           "Insp. Wanjiku (ID: 025)",
       ],
       "Status": ["Scheduled", "Scheduled", "Upcoming"],
@@ -257,7 +257,7 @@ if "schedules" not in st.session_state:
 # --- 3. PDF RECEIPT GENERATOR FUNCTION ---
 def generate_pdf_receipt(r):
   buffer = io.BytesIO()
-  c = canvas.Canvas(buffer, pagesize=(226, 420))
+  c = canvas.Canvas(buffer, pagesize=(336, 420))
   c.setFont("Courier-Bold", 10)
 
   y = 405
@@ -352,7 +352,7 @@ st.markdown(
 st.title("⚖️ Digital Verification & Audit Hub")
 st.markdown(
     "*Replacing manual paper logbooks with automated fraud prevention, real-time"
-    " analytics, circuit scheduling, and cashless revenue management.*"
+    " analytics, circuit scheduling, and  revenue management.*"
 )
 st.markdown("---")
 
@@ -379,8 +379,8 @@ st.markdown("---")
 # --- 7. TABS FOR ORGANIZED NAVIGATION ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📈 Revenue & Compliance Trends",
-    "📂 Digital Archive (Search & Export)",
-    "📝 Field Inspection Portal (M-Pesa Verified)",
+    "📂 Digital Archive ",
+    "📝 Field Inspection Portal ",
     "📅 Circuit Schedules & SMS Notices",
 ])
 
