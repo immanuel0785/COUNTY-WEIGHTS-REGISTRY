@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import io
+import time
 import numpy as np
 import pandas as pd
 from reportlab.pdfgen import canvas
@@ -16,7 +17,7 @@ st.set_page_config(
 nyeri_custom_css = """
 <style>
     /* Nyeri Brand Palette: 
-       Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
+       Forest Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
 
     /* Primary Headers in Nyeri Forest Green */
     h1, h2, h3 {
@@ -38,7 +39,7 @@ nyeri_custom_css = """
         color: #FFD700 !important; /* Gold highlight on hover */
     }
 
-    /* Sidebar Background - Nyeri Dark Navy/Blue Accent */
+    /* Sidebar Background - Nyeri Dark Navy Accent */
     section[data-testid="stSidebar"] {
         background-color: #0B192C !important;
     }
@@ -142,7 +143,9 @@ if not st.session_state["authenticated"]:
           and password == VALID_STAFF_DIRECTORY[clean_user]["pin"]
       ):
         st.session_state["authenticated"] = True
-        st.session_state["user_name"] = VALID_STAFF_DIRECTORY[clean_user]["name"]
+        st.session_state["user_name"] = VALID_STAFF_DIRECTORY[clean_user][
+            "name"
+        ]
         st.session_state["user_role"] = VALID_STAFF_DIRECTORY[clean_user][
             "role"
         ]
@@ -162,7 +165,7 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. GENERATE SIMULATED HISTORICAL DATA & SCHEDULES ---
+# --- 2. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
 @st.cache_data
 def load_mock_data():
   np.random.seed(42)
@@ -174,6 +177,10 @@ def load_mock_data():
       p=[0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.05],
   )
   traders = [f"Trader_{np.random.randint(1000, 9999)}" for _ in range(n_rows)]
+  phones = [
+      f"07{np.random.choice([1, 2, 9])}{np.random.randint(1000000, 9999999)}"
+      for _ in range(n_rows)
+  ]
   sub_counties = np.random.choice(
       [
           "Karatina / Mathira East",
@@ -196,7 +203,9 @@ def load_mock_data():
       p=[0.4, 0.2, 0.15, 0.15, 0.1],
   )
   status = np.random.choice(
-      ["Passed", "Rejected", "Conditional Pass"], size=n_rows, p=[0.72, 0.20, 0.08]
+      ["Passed", "Rejected", "Conditional Pass"],
+      size=n_rows,
+      p=[0.72, 0.20, 0.08],
   )
   fees = np.where(
       status == "Passed",
@@ -216,6 +225,7 @@ def load_mock_data():
   df = pd.DataFrame({
       "Year": years,
       "Trader_Name": traders,
+      "Phone_Number": phones,
       "Sub_County": sub_counties,
       "Equipment_Type": equipment,
       "Inspection_Status": status,
@@ -247,7 +257,7 @@ if "schedules" not in st.session_state:
       "End_Date": ["2026-11-05", "2026-11-18", "2026-12-05"],
       "Assigned_Inspector": [
           "Insp. Mwangi (ID: 042)",
-          "Insp. Martin (ID: 018)",
+          "Insp. Ndirangu (ID: 018)",
           "Insp. Wanjiku (ID: 025)",
       ],
       "Status": ["Scheduled", "Scheduled", "Upcoming"],
@@ -257,7 +267,7 @@ if "schedules" not in st.session_state:
 # --- 3. PDF RECEIPT GENERATOR FUNCTION ---
 def generate_pdf_receipt(r):
   buffer = io.BytesIO()
-  c = canvas.Canvas(buffer, pagesize=(336, 420))
+  c = canvas.Canvas(buffer, pagesize=(226, 420))
   c.setFont("Courier-Bold", 10)
 
   y = 405
@@ -352,7 +362,7 @@ st.markdown(
 st.title("⚖️ Digital Verification & Audit Hub")
 st.markdown(
     "*Replacing manual paper logbooks with automated fraud prevention, real-time"
-    " analytics, circuit scheduling, and  revenue management.*"
+    " analytics, circuit scheduling, and cashless revenue management.*"
 )
 st.markdown("---")
 
@@ -379,8 +389,8 @@ st.markdown("---")
 # --- 7. TABS FOR ORGANIZED NAVIGATION ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📈 Revenue & Compliance Trends",
-    "📂 Digital Archive ",
-    "📝 Field Inspection Portal ",
+    "📂 Digital Archive (Search & Export)",
+    "📝 Field Inspection Portal (M-Pesa Verified)",
     "📅 Circuit Schedules & SMS Notices",
 ])
 
@@ -401,19 +411,29 @@ with tab1:
 with tab2:
   st.subheader("Master Verification Registry")
   search_query = st.text_input(
-      "Search Trader Name or M-Pesa Code:",
-      placeholder="Type trader name or code...",
+      "Search Trader Name, Phone Number, or M-Pesa Code:",
+      placeholder="Type trader name, 07xx phone, or M-Pesa code...",
   )
 
   display_df = filtered_df
   if search_query:
     display_df = display_df[
-        display_df["Trader_Name"].str.contains(search_query, case=False, na=False)
-        | display_df["Mpesa_Code"].str.contains(search_query, case=False, na=False)
+        display_df["Trader_Name"].str.contains(
+            search_query, case=False, na=False
+        )
+        | display_df["Phone_Number"].str.contains(
+            search_query, case=False, na=False
+        )
+        | display_df["Mpesa_Code"].str.contains(
+            search_query, case=False, na=False
+        )
     ]
 
   st.dataframe(display_df, use_container_width=True)
-  st.caption(f"Displaying {len(display_df)} official records.")
+  st.caption(
+      f"Displaying {len(display_df)} official records (with contact details"
+      " for SMS broadcasts)."
+  )
 
   csv_master = display_df.to_csv(index=False).encode("utf-8")
   st.download_button(
@@ -449,7 +469,7 @@ with tab3:
           ],
       )
       phone_number = st.text_input(
-          "Trader Phone Number (M-Pesa)", placeholder="0712345678"
+          "Trader Phone Number (M-Pesa / SMS Alerts)", placeholder="0712345678"
       )
     with f_col2:
       new_subcounty = st.selectbox(
@@ -476,6 +496,10 @@ with tab3:
 
     if submitted:
       clean_code = mpesa_code.strip().upper()
+      clean_phone = (
+          phone_number.strip() if phone_number.strip() != "" else "0700000000"
+      )
+
       if new_trader.strip() == "":
         st.warning("Please enter a valid Trader / Business Name.")
       elif len(clean_code) < 8:
@@ -499,6 +523,7 @@ with tab3:
         new_row = pd.DataFrame({
             "Year": [extracted_year],
             "Trader_Name": [new_trader],
+            "Phone_Number": [clean_phone],
             "Sub_County": [new_subcounty],
             "Equipment_Type": [new_equipment],
             "Inspection_Status": [new_status],
@@ -513,7 +538,7 @@ with tab3:
 
         st.session_state["last_receipt_data"] = {
             "trader": new_trader,
-            "phone": phone_number,
+            "phone": clean_phone,
             "subcounty": new_subcounty,
             "equipment": new_equipment,
             "status": new_status,
@@ -590,15 +615,15 @@ with tab3:
 
 with tab4:
   st.subheader(
-      "📅 Public Inspection Schedules & Stamping Circuit Management"
+      "📅 Public Inspection Schedules & Mass SMS Broadcast Engine"
   )
   st.markdown(
       "Publish upcoming inspection centers, schedule field circuits per"
-      " sub-county, and dispatch automated SMS notifications to registered"
-      " traders."
+      " sub-county, and dispatch high-volume SMS notifications directly to"
+      " registered trader mobile numbers."
   )
 
-  col_sched1, col_sched2 = st.columns([3, 2])
+  col_sched1, col_sched2 = st.columns([1, 1])
 
   with col_sched1:
     st.markdown("### 📌 Published County Stamping Circuits")
@@ -653,15 +678,11 @@ with tab4:
             st.rerun()
 
   with col_sched2:
-    st.markdown("### 📱 Automated Trader SMS Dispatcher")
-    st.markdown(
-        "Select a published circuit to generate and broadcast automated SMS"
-        " alerts to traders whose re-verification is due."
-    )
+    st.markdown("### 🚀 High-Volume Bulk SMS Engine")
 
     if len(st.session_state["schedules"]) > 0:
       selected_circuit_idx = st.selectbox(
-          "Select Active Circuit Notice:",
+          "Select Active Circuit for Mass Alert:",
           options=range(len(st.session_state["schedules"])),
           format_func=lambda i: (
               f"{st.session_state['schedules'].iloc[i]['Sub_County']} -"
@@ -670,21 +691,66 @@ with tab4:
       )
 
       c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
+      target_subcounty = c_row["Sub_County"]
+
+      # Filter registered traders in target sub-county with phone numbers
+      matched_traders_df = st.session_state["df"][
+          st.session_state["df"]["Sub_County"] == target_subcounty
+      ]
+      trader_count = len(matched_traders_df)
+
+      # SMS Metrics Display
+      m_col1, m_col2, m_col3 = st.columns(3)
+      m_col1.metric("Target Contacts", f"{trader_count:,}")
+      m_col2.metric("Estimated SMS Units", f"{trader_count:,}")
+      m_col3.metric("Est. Cost @ KES 0.60", f"KES {trader_count * 0.60:,.2f}")
+
+      st.markdown("---")
 
       sms_template = (
           f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
-          f" for {c_row['Sub_County']} will take place at"
-          f" {c_row['Verification_Center']} from {c_row['Start_Date']} to"
-          f" {c_row['End_Date']}. All trade weighing equipment must be"
-          f" presented. Payment via M-Pesa only. Mandatory compliance."
+          f" for {target_subcounty} will take place at {c_row['Verification_Center']}"
+          f" from {c_row['Start_Date']} to {c_row['End_Date']}. All trade weighing"
+          f" equipment must be presented. Payment via M-Pesa only. Mandatory compliance."
       )
 
       st.text_area(
-          "Generated SMS Broadcast Notice:", value=sms_template, height=140
+          "Generated SMS Broadcast Content:", value=sms_template, height=120
       )
 
-      if st.button("📲 Broadcast SMS Notice to Regional Traders"):
+      # Broadcast Execution Simulation
+      if st.button("📲 Execute Mass Broadcast via Bulk Gateway"):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        # Simulate batching progress
+        batch_size = max(1, trader_count // 10)
+        for i in range(1, 11):
+          time.sleep(0.15)  # Simulate API latency
+          percent = i * 10
+          progress_bar.progress(percent)
+          sent_so_far = min(i * batch_size, trader_count)
+          status_text.text(
+              f"⚡ Dispatching SMS Batch {i}/10... ({sent_so_far:,} /"
+              f" {trader_count:,} delivered)"
+          )
+
+        status_text.empty()
+        progress_bar.empty()
+
         st.success(
-            f"SMS dispatch initiated! Notice queued for registered traders in"
-            f" {c_row['Sub_County']}."
+            f"✅ **MASS BROADCAST COMPLETE:** Successfully delivered"
+            f" **{trader_count:,} SMS alerts** to registered traders in"
+            f" **{target_subcounty}** via standard Telecom Bulk API!"
         )
+
+        # Show Sample Recipient Queue
+        with st.expander("📄 View Sample Recipient Dispatch Logs"):
+          sample_dispatch = matched_traders_df[
+              ["Trader_Name", "Phone_Number", "Sub_County"]
+          ].head(10).copy()
+          sample_dispatch["Delivery_Status"] = "DELIVERED (HTTP 200 OK)"
+          sample_dispatch["Timestamp"] = datetime.now().strftime(
+              "%Y-%m-%d %H:%M:%S"
+          )
+          st.dataframe(sample_dispatch, use_container_width=True)
