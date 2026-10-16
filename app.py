@@ -748,7 +748,7 @@ with tab4:
         with st.expander("📄 View Sample Recipient Dispatch Logs"):
           sample_dispatch = matched_traders_df[
               ["Trader_Name", "Phone_Number", "Sub_County"]
-          ].head(10).copy()
+          ].head(100).copy()
           sample_dispatch["Delivery_Status"] = "DELIVERED (HTTP 200 OK)"
           sample_dispatch["Timestamp"] = datetime.now().strftime(
               "%Y-%m-%d %H:%M:%S"
