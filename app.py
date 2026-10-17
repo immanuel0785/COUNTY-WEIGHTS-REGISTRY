@@ -16,13 +16,11 @@ st.set_page_config(
 # --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
 nyeri_custom_css = """
 <style>
-    /* Nyeri Brand Palette: Forest Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
-
+    /* Nyeri Brand Palette: Forest Green (#006837), Sky Blue (#0056B3) */
     h1, h2, h3 {
         color: #006837 !important;
         font-weight: 700 !important;
     }
-
     div.stButton > button:first-child {
         background-color: #006837 !important;
         color: white !important;
@@ -35,22 +33,18 @@ nyeri_custom_css = """
         background-color: #004d28 !important;
         color: #FFD700 !important;
     }
-
     section[data-testid="stSidebar"] {
         background-color: #0B192C !important;
     }
-
     div[data-testid="stMetricValue"] {
         color: #006837 !important;
         font-weight: bold !important;
     }
-
     button[aria-selected="true"] {
         border-bottom-color: #006837 !important;
         color: #006837 !important;
         font-weight: bold !important;
     }
-
     .nyeri-banner {
         background: linear-gradient(90deg, #006837 0%, #0056B3 100%);
         color: white;
@@ -155,68 +149,54 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. LOAD DIRECTLY FROM REAL NYERI EXCEL LEDGER FILE ---
-@st.cache_data
-def load_real_excel_data():
-  file_path = "nyeri_ledger.xlsx"
+# --- 2. UNIVERSAL EXCEL DATA LOADER FUNCTION ---
+def process_uploaded_excel(uploaded_file_or_path):
   try:
-    df = pd.read_excel(file_path)
+    df = pd.read_excel(uploaded_file_or_path)
 
-    # Clean whitespace in header names
+    # Clean whitespace in column headers
     df.columns = df.columns.str.strip()
 
-    # Ensure Phone numbers format cleanly as text strings without floats
-    if "Phone No." in df.columns:
-      df["Phone No."] = (
-          df["Phone No."]
-          .fillna("")
-          .astype(str)
-          .str.replace(".0", "", regex=False)
-      )
+    # Clean phone number columns if present
+    phone_cols = [c for c in df.columns if "phone" in c.lower() or "no." in c.lower()]
+    for pcol in phone_cols:
+      if pcol != "S/NO.":
+        df[pcol] = (
+            df[pcol]
+            .fillna("")
+            .astype(str)
+            .str.replace(".0", "", regex=False)
+        )
 
-    # Convert numeric columns safely
+    # Fill empty numeric cells with 0
     numeric_cols = df.select_dtypes(include=["number"]).columns
     df[numeric_cols] = df[numeric_cols].fillna(0)
 
-    # Standardize DATE column to string
-    if "DATE" in df.columns:
-      df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce").dt.strftime(
-          "%Y-%m-%d"
-      )
-
-    # Automatically compute 365-day expiry date
-    if "DATE" in df.columns:
-      df["NEXT_DUE_DATE"] = pd.to_datetime(
-          df["DATE"], errors="coerce"
-      ).apply(
-          lambda d: (d + timedelta(days=365)).strftime("%Y-%m-%d")
-          if pd.notnull(d)
-          else ""
-      )
+    # Format date columns if present
+    date_cols = [c for c in df.columns if "date" in c.lower() or c.upper() == "DATE"]
+    for dcol in date_cols:
+      df[dcol] = pd.to_datetime(df[dcol], errors="coerce").dt.strftime("%Y-%m-%d")
 
     return df
-
-  except FileNotFoundError:
-    # Fallback to empty formatted dataframe if file not found initially
-    st.warning(
-        f"⚠️ File '{file_path}' not found in folder. Please place"
-        " 'nyeri_ledger.xlsx' in the project directory or upload it below."
-    )
-    return pd.DataFrame(
-        columns=[
-            "DATE",
-            "S/NO.",
-            "NAME",
-            "Phone No.",
-            "STATION",
-            "Total Amount kshs (17",
-            "NEXT_DUE_DATE",
-        ]
-    )
+  except Exception as e:
+    st.error(f"⚠️ Error reading Excel file: {e}")
+    return None
 
 
+# Initialize session state dataframe
 if "df" not in st.session_state:
-  st.session_state["df"] = load_real_excel_data()
+  # Try loading default local file if available, otherwise initialize empty template
+  try:
+    st.session_state["df"] = process_uploaded_excel("nyeri_ledger.xlsx")
+  except Exception:
+    st.session_state["df"] = pd.DataFrame(
+        columns=["DATE", "S/NO.", "NAME", "Phone No.", "STATION", "TOTAL_AMOUNT_KSHS"]
+    )
+
+if st.session_state["df"] is None:
+  st.session_state["df"] = pd.DataFrame(
+      columns=["DATE", "S/NO.", "NAME", "Phone No.", "STATION", "TOTAL_AMOUNT_KSHS"]
+  )
 
 df = st.session_state["df"]
 
@@ -294,27 +274,48 @@ def generate_pdf_receipt(r):
   return buffer.getvalue()
 
 
-# --- 4. SIDEBAR CONTROL PANEL ---
+# --- 4. SIDEBAR CONTROL PANEL & UNIVERSAL UPLOADER ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
 st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
+st.sidebar.subheader("📂 Upload Any Excel Ledger")
+uploaded_sidebar_file = st.sidebar.file_uploader(
+    "Upload .xlsx Ledger File", type=["xlsx", "xls"]
+)
+if uploaded_sidebar_file is not None:
+  new_df = process_uploaded_excel(uploaded_sidebar_file)
+  if new_df is not None:
+    st.session_state["df"] = new_df
+    st.sidebar.success(
+        f"Loaded {len(new_df):,} rows from '{uploaded_sidebar_file.name}'!"
+    )
+    st.rerun()
+
+st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-station_column = "STATION" if "STATION" in df.columns else df.columns[4]
+# Dynamic Station Filter based on columns
+station_col_candidates = [
+    c
+    for c in df.columns
+    if "station" in c.lower() or "sub_county" in c.lower() or "county" in c.lower()
+]
+station_column = station_col_candidates[0] if len(station_col_candidates) > 0 else None
+
 station_list = (
     ["All"] + list(df[station_column].dropna().unique())
-    if station_column in df.columns
+    if station_column and station_column in df.columns
     else ["All"]
 )
 selected_station = st.sidebar.selectbox("Filter by Station", station_list)
 
 filtered_df = df
-if selected_station != "All" and station_column in filtered_df.columns:
+if selected_station != "All" and station_column and station_column in filtered_df.columns:
   filtered_df = filtered_df[filtered_df[station_column] == selected_station]
 
 # --- 5. MAIN DASHBOARD HEADER ---
@@ -338,58 +339,46 @@ st.markdown("---")
 # --- 6. TOP-LEVEL METRICS ---
 total_records = len(filtered_df)
 
-# Locate revenue column dynamically
-rev_col = [c for c in df.columns if "Total" in c or "Kshs" in c or "AMOUNT" in c]
+rev_col_candidates = [
+    c for c in df.columns if "total" in c.lower() or "kshs" in c.lower() or "amount" in c.lower()
+]
+rev_col = rev_col_candidates[0] if len(rev_col_candidates) > 0 else None
+
 total_revenue = (
-    filtered_df[rev_col[0]].sum()
-    if len(rev_col) > 0 and rev_col[0] in filtered_df.columns
+    filtered_df[rev_col].sum()
+    if rev_col and rev_col in filtered_df.columns
     else 0
 )
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Ledger Entries", f"{total_records:,}")
 col2.metric("Total Revenue Captured", f"KES {total_revenue:,.2f}")
-col3.metric("Database Sync Status", "🟢 Live & Authenticated")
+col3.metric("Database Status", "🟢 Ready & Dynamic")
 
 st.markdown("---")
 
 # --- 7. NAVIGATION TABS ---
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📂 Digital Ledger (Real Excel Records)",
+    "📂 Digital Ledger Archive",
     "📈 Revenue Analytics & Trends",
     "📝 Field Entry & Auto-Receipt Generator",
     "📅 Circuit Schedules & Mass SMS Engine",
 ])
 
-# --- TAB 1: REAL EXCEL LEDGER ARCHIVE ---
+# --- TAB 1: ARCHIVE & TABLE ---
 with tab1:
-  st.subheader("Master Verification Registry (Live Excel Data)")
-
-  # Live file drag-and-drop updater
-  uploaded_file = st.file_uploader(
-      "📥 Upload / Refresh Official Nyeri Excel Ledger (.xlsx)",
-      type=["xlsx", "xls"],
+  st.subheader("Master Verification Registry (Dynamic Excel View)")
+  st.markdown(
+      "You can upload any departmental Excel spreadsheet using the sidebar uploader"
+      " above, and view, search, or export it instantly below."
   )
-  if uploaded_file is not None:
-    up_df = pd.read_excel(uploaded_file)
-    up_df.columns = up_df.columns.str.strip()
-    if "Phone No." in up_df.columns:
-      up_df["Phone No."] = (
-          up_df["Phone No."]
-          .fillna("")
-          .astype(str)
-          .str.replace(".0", "", regex=False)
-      )
-    st.session_state["df"] = up_df
-    st.success("Ledger updated successfully from uploaded file!")
-    st.rerun()
 
   search_query = st.text_input(
-      "Search Trader Name, Phone Number, S/NO, or Station:",
-      placeholder="Type to filter real ledger records...",
+      "Search Ledger Records:",
+      placeholder="Type trader name, phone, serial number, or station...",
   )
 
-  display_df = st.session_state["df"]
+  display_df = filtered_df
   if search_query:
     mask = display_df.astype(str).apply(
         lambda x: x.str.contains(search_query, case=False, na=False)
@@ -397,13 +386,13 @@ with tab1:
     display_df = display_df[mask.any(axis=1)]
 
   st.dataframe(display_df, use_container_width=True)
-  st.caption(f"Displaying {len(display_df)} official ledger records.")
+  st.caption(f"Displaying {len(display_df)} records.")
 
   csv_master = display_df.to_csv(index=False).encode("utf-8")
   st.download_button(
       label="📥 Export Filtered Audit Ledger (CSV)",
       data=csv_master,
-      file_name="nyeri_county_weights_ledger.csv",
+      file_name="nyeri_county_weights_audit.csv",
       mime="text/csv",
   )
 
@@ -412,15 +401,17 @@ with tab2:
   st.subheader("Historical Revenue & Station Breakdown")
   col_a, col_b = st.columns(2)
 
-  if station_column in filtered_df.columns:
+  if station_column and station_column in filtered_df.columns:
     with col_a:
-      st.markdown("**Total Inspections Logged per Station**")
+      st.markdown("**Inspections per Station**")
       st.bar_chart(filtered_df.groupby(station_column).size())
 
     with col_b:
-      if len(rev_col) > 0 and rev_col[0] in filtered_df.columns:
-        st.markdown("**Total Revenue Collected per Station (KES)**")
-        st.bar_chart(filtered_df.groupby(station_column)[rev_col[0]].sum())
+      if rev_col and rev_col in filtered_df.columns:
+        st.markdown("**Revenue Collected per Station (KES)**")
+        st.bar_chart(filtered_df.groupby(station_column)[rev_col].sum())
+  else:
+    st.info("Station or Revenue columns not detected in the current uploaded file.")
 
 # --- TAB 3: FIELD ENTRY FORM ---
 with tab3:
@@ -429,12 +420,15 @@ with tab3:
   if "last_receipt_data" not in st.session_state:
     st.session_state["last_receipt_data"] = None
 
-  sno_col = [c for c in df.columns if "S/NO" in c or "s/no" in c or "NO" in c]
-  default_sno = (
-      int(pd.to_numeric(df[sno_col[0]], errors="coerce").max() + 1)
-      if len(sno_col) > 0
-      else 204820
-  )
+  sno_col_candidates = [c for c in df.columns if "s/no" in c.lower() or "serial" in c.lower()]
+  sno_col = sno_col_candidates[0] if len(sno_col_candidates) > 0 else None
+
+  default_sno = 204820
+  if sno_col and sno_col in df.columns:
+    try:
+      default_sno = int(pd.to_numeric(df[sno_col], errors="coerce").max() + 1)
+    except Exception:
+      pass
 
   with st.form("inspection_form"):
     f_col1, f_col2 = st.columns(2)
@@ -585,8 +579,7 @@ with tab4:
   st.subheader("📅 Public Inspection Schedules & Mass SMS Broadcast Engine")
   st.markdown(
       "Publish upcoming inspection centers, schedule field circuits, and"
-      " dispatch high-volume SMS notifications to trader contact numbers from"
-      " the Excel database."
+      " dispatch high-volume SMS notifications to trader contact numbers."
   )
 
   col_sched1, col_sched2 = st.columns([1, 1])
