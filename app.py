@@ -149,17 +149,20 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. ROBUST MULTI-SHEET & HEADER-PROMOTION EXCEL LOADER ---
+# --- 2. FOOLPROOF HEADER-DETECTION & EXCEL LOADER ---
 def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
   try:
-    # 1. Read sheet without assigning headers initially
+    # 1. Read raw sheet without headers to scan for the title/header row
     df_raw = pd.read_excel(
         uploaded_file_or_path, sheet_name=sheet_name, header=None
     )
 
-    # 2. Find the exact row index that contains the actual column names
-    header_row_idx = None
-    for idx, row in df_raw.head(10).iterrows():
+    if df_raw.empty:
+      return None
+
+    # 2. Automatically find which row contains the column titles
+    header_row_idx = 0
+    for idx, row in df_raw.head(15).iterrows():
       row_str = " ".join([str(val).lower() for val in row.values if pd.notnull(val)])
       if any(
           k in row_str
@@ -170,40 +173,37 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
               "station",
               "stamped",
               "total amount",
-              "adjusting fees",
+              "trader",
           ]
       ):
         header_row_idx = idx
         break
 
-    # 3. Promote that specific row as column names and drop rows above it
-    if header_row_idx is not None:
-      df = df_raw.iloc[header_row_idx + 1 :].copy()
-      df.columns = df_raw.iloc[header_row_idx].astype(str).str.strip()
-      df = df.reset_index(drop=True)
-    else:
-      df = df_raw
+    # 3. Read the sheet natively setting the detected row as the header
+    df = pd.read_excel(
+        uploaded_file_or_path, sheet_name=sheet_name, header=header_row_idx
+    )
 
-    # 4. Clean up column names and strip whitespace
+    # 4. Clean column names and drop completely empty rows
     df.columns = df.columns.astype(str).str.strip()
+    df = df.dropna(how="all").reset_index(drop=True)
+
+    # Remove any unnamed artifact columns if they crept in
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed", na=False)]
 
     # 5. Clean phone numbers safely
-    phone_cols = [
-        c
-        for c in df.columns
-        if "phone" in c.lower() or "no." in c.lower() or "tel" in c.lower()
-    ]
-    for pcol in phone_cols:
-      if "s/no" not in pcol.lower():
-        df[pcol] = (
-            df[pcol].fillna("").astype(str).str.replace(".0", "", regex=False)
-        )
+    for col in df.columns:
+      if any(p in col.lower() for p in ["phone", "no.", "tel", "contact"]):
+        if "s/no" not in col.lower():
+          df[col] = (
+              df[col].fillna("").astype(str).str.replace(".0", "", regex=False)
+          )
 
-    # 6. Convert fee and count columns to numbers for analytics & sums
+    # 6. Convert numeric fees and counts for analytics
     for col in df.columns:
       if any(
-          num_key in col.lower()
-          for num_key in [
+          n in col.lower()
+          for n in [
               "total",
               "amount",
               "kshs",
@@ -211,27 +211,22 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
               "rejected",
               "adjusted",
               "fees",
-              "expense",
               "charges",
+              "expense",
           ]
       ):
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     # 7. Format date columns cleanly
-    date_cols = [
-        c for c in df.columns if "date" in c.lower() or c.upper() == "DATE"
-    ]
-    for dcol in date_cols:
-      df[dcol] = pd.to_datetime(df[dcol], errors="coerce").dt.strftime(
-          "%Y-%m-%d"
-      )
-
-    # Drop fully empty rows
-    df = df.dropna(how="all").reset_index(drop=True)
+    for col in df.columns:
+      if "date" in col.lower():
+        df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime(
+            "%Y-%m-%d"
+        )
 
     return df
   except Exception as e:
-    st.error(f"⚠️ Error parsing Excel structure: {e}")
+    st.error(f"⚠️ Error parsing Excel sheet: {e}")
     return None
 
 
