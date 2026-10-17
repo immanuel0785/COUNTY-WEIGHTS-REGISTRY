@@ -149,28 +149,45 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. ROBUST MULTI-SHEET & HEADER-DETECTING EXCEL LOADER ---
+# --- 2. ROBUST MULTI-SHEET & HEADER-PROMOTION EXCEL LOADER ---
 def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
   try:
-    # Read Excel workbook sheet
-    df = pd.read_excel(uploaded_file_or_path, sheet_name=sheet_name)
+    # 1. Read sheet without assigning headers initially
+    df_raw = pd.read_excel(
+        uploaded_file_or_path, sheet_name=sheet_name, header=None
+    )
 
-    # Automatically scan top rows to find official ledger headers if titles exist
-    for idx, row in df.head(10).iterrows():
-      row_str = str(row.values).lower()
+    # 2. Find the exact row index that contains the actual column names
+    header_row_idx = None
+    for idx, row in df_raw.head(10).iterrows():
+      row_str = " ".join([str(val).lower() for val in row.values if pd.notnull(val)])
       if any(
-          keyword in row_str
-          for keyword in ["date", "name", "station", "s/no", "phone"]
+          k in row_str
+          for k in [
+              "date",
+              "s/no",
+              "name",
+              "station",
+              "stamped",
+              "total amount",
+              "adjusting fees",
+          ]
       ):
-        df = pd.read_excel(
-            uploaded_file_or_path, sheet_name=sheet_name, header=idx
-        )
+        header_row_idx = idx
         break
 
-    # Clean whitespace in column headers
+    # 3. Promote that specific row as column names and drop rows above it
+    if header_row_idx is not None:
+      df = df_raw.iloc[header_row_idx + 1 :].copy()
+      df.columns = df_raw.iloc[header_row_idx].astype(str).str.strip()
+      df = df.reset_index(drop=True)
+    else:
+      df = df_raw
+
+    # 4. Clean up column names and strip whitespace
     df.columns = df.columns.astype(str).str.strip()
 
-    # Clean phone numbers
+    # 5. Clean phone numbers safely
     phone_cols = [
         c
         for c in df.columns
@@ -179,17 +196,28 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
     for pcol in phone_cols:
       if "s/no" not in pcol.lower():
         df[pcol] = (
-            df[pcol]
-            .fillna("")
-            .astype(str)
-            .str.replace(".0", "", regex=False)
+            df[pcol].fillna("").astype(str).str.replace(".0", "", regex=False)
         )
 
-    # Fill empty numeric cells with 0
-    numeric_cols = df.select_dtypes(include=["number"]).columns
-    df[numeric_cols] = df[numeric_cols].fillna(0)
+    # 6. Convert fee and count columns to numbers for analytics & sums
+    for col in df.columns:
+      if any(
+          num_key in col.lower()
+          for num_key in [
+              "total",
+              "amount",
+              "kshs",
+              "stamped",
+              "rejected",
+              "adjusted",
+              "fees",
+              "expense",
+              "charges",
+          ]
+      ):
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # Format date columns safely
+    # 7. Format date columns cleanly
     date_cols = [
         c for c in df.columns if "date" in c.lower() or c.upper() == "DATE"
     ]
@@ -197,6 +225,9 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
       df[dcol] = pd.to_datetime(df[dcol], errors="coerce").dt.strftime(
           "%Y-%m-%d"
       )
+
+    # Drop fully empty rows
+    df = df.dropna(how="all").reset_index(drop=True)
 
     return df
   except Exception as e:
@@ -216,7 +247,7 @@ if "df" not in st.session_state:
             "NAME",
             "Phone No.",
             "STATION",
-            "Total Amount kshs (17",
+            "Total Amount kshs",
         ]
     )
 
@@ -228,7 +259,7 @@ if st.session_state["df"] is None or st.session_state["df"].empty:
           "NAME",
           "Phone No.",
           "STATION",
-          "Total Amount kshs (17",
+          "Total Amount kshs",
       ]
   )
 
