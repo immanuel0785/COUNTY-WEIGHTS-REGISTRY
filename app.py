@@ -149,18 +149,35 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 2. UNIVERSAL EXCEL DATA LOADER FUNCTION ---
-def process_uploaded_excel(uploaded_file_or_path):
+# --- 2. ROBUST MULTI-SHEET & HEADER-DETECTING EXCEL LOADER ---
+def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
   try:
-    df = pd.read_excel(uploaded_file_or_path)
+    # Read Excel workbook sheet
+    df = pd.read_excel(uploaded_file_or_path, sheet_name=sheet_name)
+
+    # Automatically scan top rows to find official ledger headers if titles exist
+    for idx, row in df.head(10).iterrows():
+      row_str = str(row.values).lower()
+      if any(
+          keyword in row_str
+          for keyword in ["date", "name", "station", "s/no", "phone"]
+      ):
+        df = pd.read_excel(
+            uploaded_file_or_path, sheet_name=sheet_name, header=idx
+        )
+        break
 
     # Clean whitespace in column headers
-    df.columns = df.columns.str.strip()
+    df.columns = df.columns.astype(str).str.strip()
 
-    # Clean phone number columns if present
-    phone_cols = [c for c in df.columns if "phone" in c.lower() or "no." in c.lower()]
+    # Clean phone numbers
+    phone_cols = [
+        c
+        for c in df.columns
+        if "phone" in c.lower() or "no." in c.lower() or "tel" in c.lower()
+    ]
     for pcol in phone_cols:
-      if pcol != "S/NO.":
+      if "s/no" not in pcol.lower():
         df[pcol] = (
             df[pcol]
             .fillna("")
@@ -172,30 +189,47 @@ def process_uploaded_excel(uploaded_file_or_path):
     numeric_cols = df.select_dtypes(include=["number"]).columns
     df[numeric_cols] = df[numeric_cols].fillna(0)
 
-    # Format date columns if present
-    date_cols = [c for c in df.columns if "date" in c.lower() or c.upper() == "DATE"]
+    # Format date columns safely
+    date_cols = [
+        c for c in df.columns if "date" in c.lower() or c.upper() == "DATE"
+    ]
     for dcol in date_cols:
-      df[dcol] = pd.to_datetime(df[dcol], errors="coerce").dt.strftime("%Y-%m-%d")
+      df[dcol] = pd.to_datetime(df[dcol], errors="coerce").dt.strftime(
+          "%Y-%m-%d"
+      )
 
     return df
   except Exception as e:
-    st.error(f"⚠️ Error reading Excel file: {e}")
+    st.error(f"⚠️ Error parsing Excel structure: {e}")
     return None
 
 
 # Initialize session state dataframe
 if "df" not in st.session_state:
-  # Try loading default local file if available, otherwise initialize empty template
   try:
     st.session_state["df"] = process_uploaded_excel("nyeri_ledger.xlsx")
   except Exception:
     st.session_state["df"] = pd.DataFrame(
-        columns=["DATE", "S/NO.", "NAME", "Phone No.", "STATION", "TOTAL_AMOUNT_KSHS"]
+        columns=[
+            "DATE",
+            "S/NO.",
+            "NAME",
+            "Phone No.",
+            "STATION",
+            "Total Amount kshs (17",
+        ]
     )
 
-if st.session_state["df"] is None:
+if st.session_state["df"] is None or st.session_state["df"].empty:
   st.session_state["df"] = pd.DataFrame(
-      columns=["DATE", "S/NO.", "NAME", "Phone No.", "STATION", "TOTAL_AMOUNT_KSHS"]
+      columns=[
+          "DATE",
+          "S/NO.",
+          "NAME",
+          "Phone No.",
+          "STATION",
+          "Total Amount kshs (17",
+      ]
   )
 
 df = st.session_state["df"]
@@ -274,38 +308,54 @@ def generate_pdf_receipt(r):
   return buffer.getvalue()
 
 
-# --- 4. SIDEBAR CONTROL PANEL & UNIVERSAL UPLOADER ---
+# --- 4. SIDEBAR CONTROL PANEL & MULTI-SHEET UPLOADER ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
 st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("📂 Upload Any Excel Ledger")
+st.sidebar.subheader("📂 Upload Multi-Year Excel Ledger")
 uploaded_sidebar_file = st.sidebar.file_uploader(
     "Upload .xlsx Ledger File", type=["xlsx", "xls"]
 )
+
 if uploaded_sidebar_file is not None:
-  new_df = process_uploaded_excel(uploaded_sidebar_file)
-  if new_df is not None:
-    st.session_state["df"] = new_df
-    st.sidebar.success(
-        f"Loaded {len(new_df):,} rows from '{uploaded_sidebar_file.name}'!"
-    )
-    st.rerun()
+  try:
+    xl_workbook = pd.ExcelFile(uploaded_sidebar_file)
+    sheet_names_list = xl_workbook.sheet_names
+
+    selected_sheet = st.sidebar.selectbox("Select Ledger Sheet", sheet_names_list)
+
+    if st.sidebar.button("Load Selected Sheet"):
+      loaded_df = process_uploaded_excel(
+          uploaded_sidebar_file, sheet_name=selected_sheet
+      )
+      if loaded_df is not None and not loaded_df.empty:
+        st.session_state["df"] = loaded_df
+        st.sidebar.success(
+            f"Loaded {len(loaded_df):,} rows from sheet '{selected_sheet}'!"
+        )
+        st.rerun()
+      else:
+        st.sidebar.error("⚠️ Selected sheet returned 0 rows.")
+  except Exception as err:
+    st.sidebar.error(f"Error reading workbook sheets: {err}")
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-# Dynamic Station Filter based on columns
+# Dynamic Station Filtering
 station_col_candidates = [
     c
     for c in df.columns
     if "station" in c.lower() or "sub_county" in c.lower() or "county" in c.lower()
 ]
-station_column = station_col_candidates[0] if len(station_col_candidates) > 0 else None
+station_column = (
+    station_col_candidates[0] if len(station_col_candidates) > 0 else None
+)
 
 station_list = (
     ["All"] + list(df[station_column].dropna().unique())
@@ -315,7 +365,11 @@ station_list = (
 selected_station = st.sidebar.selectbox("Filter by Station", station_list)
 
 filtered_df = df
-if selected_station != "All" and station_column and station_column in filtered_df.columns:
+if (
+    selected_station != "All"
+    and station_column
+    and station_column in filtered_df.columns
+):
   filtered_df = filtered_df[filtered_df[station_column] == selected_station]
 
 # --- 5. MAIN DASHBOARD HEADER ---
@@ -340,20 +394,20 @@ st.markdown("---")
 total_records = len(filtered_df)
 
 rev_col_candidates = [
-    c for c in df.columns if "total" in c.lower() or "kshs" in c.lower() or "amount" in c.lower()
+    c
+    for c in df.columns
+    if "total" in c.lower() or "kshs" in c.lower() or "amount" in c.lower()
 ]
 rev_col = rev_col_candidates[0] if len(rev_col_candidates) > 0 else None
 
 total_revenue = (
-    filtered_df[rev_col].sum()
-    if rev_col and rev_col in filtered_df.columns
-    else 0
+    filtered_df[rev_col].sum() if rev_col and rev_col in filtered_df.columns else 0
 )
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Ledger Entries", f"{total_records:,}")
 col2.metric("Total Revenue Captured", f"KES {total_revenue:,.2f}")
-col3.metric("Database Status", "🟢 Ready & Dynamic")
+col3.metric("Database Status", "🟢 Live & Connected")
 
 st.markdown("---")
 
@@ -369,8 +423,8 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
   st.subheader("Master Verification Registry (Dynamic Excel View)")
   st.markdown(
-      "You can upload any departmental Excel spreadsheet using the sidebar uploader"
-      " above, and view, search, or export it instantly below."
+      "Inspect multi-year historical records ingested from your departmental"
+      " spreadsheets."
   )
 
   search_query = st.text_input(
@@ -411,7 +465,7 @@ with tab2:
         st.markdown("**Revenue Collected per Station (KES)**")
         st.bar_chart(filtered_df.groupby(station_column)[rev_col].sum())
   else:
-    st.info("Station or Revenue columns not detected in the current uploaded file.")
+    st.info("Station or Revenue columns not detected in the current sheet.")
 
 # --- TAB 3: FIELD ENTRY FORM ---
 with tab3:
@@ -420,7 +474,9 @@ with tab3:
   if "last_receipt_data" not in st.session_state:
     st.session_state["last_receipt_data"] = None
 
-  sno_col_candidates = [c for c in df.columns if "s/no" in c.lower() or "serial" in c.lower()]
+  sno_col_candidates = [
+      c for c in df.columns if "s/no" in c.lower() or "serial" in c.lower()
+  ]
   sno_col = sno_col_candidates[0] if len(sno_col_candidates) > 0 else None
 
   default_sno = 204820
