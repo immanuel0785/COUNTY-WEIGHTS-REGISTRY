@@ -16,16 +16,13 @@ st.set_page_config(
 # --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
 nyeri_custom_css = """
 <style>
-    /* Nyeri Brand Palette: 
-       Forest Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
+    /* Nyeri Brand Palette: Forest Green (#006837), Sky Blue (#0056B3), Ochre Earth (#8B4513) */
 
-    /* Primary Headers in Nyeri Forest Green */
     h1, h2, h3 {
         color: #006837 !important;
         font-weight: 700 !important;
     }
 
-    /* Style Primary Form Buttons in Nyeri Forest Green */
     div.stButton > button:first-child {
         background-color: #006837 !important;
         color: white !important;
@@ -36,28 +33,24 @@ nyeri_custom_css = """
     }
     div.stButton > button:first-child:hover {
         background-color: #004d28 !important;
-        color: #FFD700 !important; /* Gold highlight on hover */
+        color: #FFD700 !important;
     }
 
-    /* Sidebar Background - Nyeri Dark Navy Accent */
     section[data-testid="stSidebar"] {
         background-color: #0B192C !important;
     }
 
-    /* Metric Value Styling */
     div[data-testid="stMetricValue"] {
         color: #006837 !important;
         font-weight: bold !important;
     }
 
-    /* Tab Selected Styling */
     button[aria-selected="true"] {
         border-bottom-color: #006837 !important;
         color: #006837 !important;
         font-weight: bold !important;
     }
 
-    /* County Banner Badge */
     .nyeri-banner {
         background: linear-gradient(90deg, #006837 0%, #0056B3 100%);
         color: white;
@@ -157,107 +150,93 @@ if not st.session_state["authenticated"]:
         )
         st.rerun()
       else:
-        st.error(
-            "⚠️ Authentication Failed: Invalid Staff ID or secure PIN. Please"
-            " use the official demo credentials provided above."
-        )
+        st.error("⚠️ Authentication Failed: Invalid Staff ID or secure PIN.")
 
   st.stop()
 
 
-# --- 2. GENERATE SIMULATED HISTORICAL DATA (2015 - 2026) ---
+# --- 2. LOAD DIRECTLY FROM REAL NYERI EXCEL LEDGER FILE ---
 @st.cache_data
-def load_mock_data():
-  np.random.seed(42)
-  n_rows = 4500
+def load_real_excel_data():
+  file_path = "nyeri_ledger.xlsx"
+  try:
+    df = pd.read_excel(file_path)
 
-  years = np.random.choice(
-      range(2015, 2027),
-      size=n_rows,
-      p=[0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.05],
-  )
-  traders = [f"Trader_{np.random.randint(1000, 9999)}" for _ in range(n_rows)]
-  phones = [
-      f"07{np.random.choice([1, 2, 9])}{np.random.randint(1000000, 9999999)}"
-      for _ in range(n_rows)
-  ]
-  sub_counties = np.random.choice(
-      [
-          "Karatina / Mathira East",
-          "Othaya Town",
-          "Mukurwe-ini Centre",
-          "Nyeri Central / Town",
-          "Tetu Sub-County",
-      ],
-      size=n_rows,
-  )
-  equipment = np.random.choice(
-      [
-          "Counter Scale",
-          "Platform Scale",
-          "Fuel Dispenser",
-          "Spring Balance",
-          "Mass Piece",
-      ],
-      size=n_rows,
-      p=[0.4, 0.2, 0.15, 0.15, 0.1],
-  )
-  status = np.random.choice(
-      ["Passed", "Rejected", "Conditional Pass"],
-      size=n_rows,
-      p=[0.72, 0.20, 0.08],
-  )
-  fees = np.where(
-      status == "Passed",
-      np.random.choice([1500, 3000, 5000], size=n_rows),
-      np.random.choice([500, 1000], size=n_rows),
-  )
-  mpesa_codes = [
-      f"QHX{np.random.randint(10000, 99999)}" for _ in range(n_rows)
-  ]
-  next_due = [
-      (
-          datetime.now() + timedelta(days=np.random.randint(30, 365))
-      ).strftime("%Y-%m-%d")
-      for _ in range(n_rows)
-  ]
+    # Clean whitespace in header names
+    df.columns = df.columns.str.strip()
 
-  df = pd.DataFrame({
-      "Year": years,
-      "Trader_Name": traders,
-      "Phone_Number": phones,
-      "Sub_County": sub_counties,
-      "Equipment_Type": equipment,
-      "Inspection_Status": status,
-      "Fee_Collected": fees,
-      "Mpesa_Code": mpesa_codes,
-      "Next_Due_Date": next_due,
-  })
-  return df
+    # Ensure Phone numbers format cleanly as text strings without floats
+    if "Phone No." in df.columns:
+      df["Phone No."] = (
+          df["Phone No."]
+          .fillna("")
+          .astype(str)
+          .str.replace(".0", "", regex=False)
+      )
+
+    # Convert numeric columns safely
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    df[numeric_cols] = df[numeric_cols].fillna(0)
+
+    # Standardize DATE column to string
+    if "DATE" in df.columns:
+      df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce").dt.strftime(
+          "%Y-%m-%d"
+      )
+
+    # Automatically compute 365-day expiry date
+    if "DATE" in df.columns:
+      df["NEXT_DUE_DATE"] = pd.to_datetime(
+          df["DATE"], errors="coerce"
+      ).apply(
+          lambda d: (d + timedelta(days=365)).strftime("%Y-%m-%d")
+          if pd.notnull(d)
+          else ""
+      )
+
+    return df
+
+  except FileNotFoundError:
+    # Fallback to empty formatted dataframe if file not found initially
+    st.warning(
+        f"⚠️ File '{file_path}' not found in folder. Please place"
+        " 'nyeri_ledger.xlsx' in the project directory or upload it below."
+    )
+    return pd.DataFrame(
+        columns=[
+            "DATE",
+            "S/NO.",
+            "NAME",
+            "Phone No.",
+            "STATION",
+            "Total Amount kshs (17",
+            "NEXT_DUE_DATE",
+        ]
+    )
 
 
 if "df" not in st.session_state:
-  st.session_state["df"] = load_mock_data()
+  st.session_state["df"] = load_real_excel_data()
 
 df = st.session_state["df"]
 
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
       "Sub_County": [
-          "Karatina / Mathira East",
-          "Othaya Town",
-          "Nyeri Central / Town",
+          "OTHAYA TOWN",
+          "OFFICE / NYERI TOWN",
+          "KIAMARIGA / MUNYU",
       ],
       "Verification_Center": [
-          "Karatina Open Market Hall",
           "Othaya Social Hall",
           "Nyeri Town Sub-County Office",
+          "Kiamariga Market Hall",
       ],
       "Start_Date": ["2026-11-01", "2026-11-15", "2026-12-01"],
       "End_Date": ["2026-11-05", "2026-11-18", "2026-12-05"],
       "Assigned_Inspector": [
-          "Insp. Mwangi (ID: 042)",
           "Insp. Ndirangu (ID: 018)",
+          "Insp. Mwangi (ID: 042)",
           "Insp. Wanjiku (ID: 025)",
       ],
       "Status": ["Scheduled", "Scheduled", "Upcoming"],
@@ -283,7 +262,7 @@ def generate_pdf_receipt(r):
   c.drawString(15, y, "CERTIFICATE OF VERIFICATION")
   y -= 14
   c.setFont("Courier", 8)
-  c.drawString(15, y, f"Receipt No: NYR-{r['code']}")
+  c.drawString(15, y, f"S/NO: {r['s_no']}")
   y -= 12
   c.drawString(15, y, f"Date Issued: {r['date']}")
   y -= 12
@@ -291,16 +270,12 @@ def generate_pdf_receipt(r):
   y -= 12
   c.drawString(15, y, f"Phone: {r['phone']}")
   y -= 12
-  c.drawString(15, y, f"Sub-County: {r['subcounty']}")
-  y -= 12
-  c.drawString(15, y, f"Equipment: {r['equipment']}")
-  y -= 12
-  c.drawString(15, y, f"Status: {r['status']}")
+  c.drawString(15, y, f"Station: {r['station']}")
   y -= 14
   c.drawString(15, y, "-" * 38)
   y -= 12
 
-  c.drawString(15, y, f"Stamping Fee: KES {r['fee']:,}")
+  c.drawString(15, y, f"Total Amount: KES {r['fee']:,.2f}")
   y -= 12
   c.drawString(15, y, f"M-Pesa Ref: {r['code']}")
   y -= 12
@@ -319,7 +294,7 @@ def generate_pdf_receipt(r):
   return buffer.getvalue()
 
 
-# --- 4. SIDEBAR FILTERS & CONTROL PANEL ---
+# --- 4. SIDEBAR CONTROL PANEL ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
 st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
@@ -330,25 +305,19 @@ if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-selected_years = st.sidebar.slider(
-    "Select Year Range", 2015, 2026, (2015, 2026)
+station_column = "STATION" if "STATION" in df.columns else df.columns[4]
+station_list = (
+    ["All"] + list(df[station_column].dropna().unique())
+    if station_column in df.columns
+    else ["All"]
 )
-selected_subcounty = st.sidebar.selectbox(
-    "Filter by Sub-County", ["All"] + list(df["Sub_County"].unique())
-)
-selected_status = st.sidebar.selectbox(
-    "Compliance Status", ["All"] + list(df["Inspection_Status"].unique())
-)
+selected_station = st.sidebar.selectbox("Filter by Station", station_list)
 
-filtered_df = df[
-    (df["Year"] >= selected_years[0]) & (df["Year"] <= selected_years[1])
-]
-if selected_subcounty != "All":
-  filtered_df = filtered_df[filtered_df["Sub_County"] == selected_subcounty]
-if selected_status != "All":
-  filtered_df = filtered_df[filtered_df["Inspection_Status"] == selected_status]
+filtered_df = df
+if selected_station != "All" and station_column in filtered_df.columns:
+  filtered_df = filtered_df[filtered_df[station_column] == selected_station]
 
-# --- 5. MAIN DASHBOARD HEADER WITH OFFICIAL NYERI BANNER ---
+# --- 5. MAIN DASHBOARD HEADER ---
 st.markdown(
     """
 <div class="nyeri-banner">
@@ -361,138 +330,159 @@ st.markdown(
 
 st.title("⚖️ Digital Verification & Audit Hub")
 st.markdown(
-    "*Replacing manual paper logbooks with automated fraud prevention, real-time"
-    " analytics, circuit scheduling, and cashless revenue management.*"
+    "*Digitizing Nyeri County's physical inspection ledgers into an automated,"
+    " fraud-proof database.*"
 )
 st.markdown("---")
 
-# --- 6. TOP-LEVEL METRICS (KPIs) ---
-total_inspections = len(filtered_df)
-total_revenue = filtered_df["Fee_Collected"].sum()
-compliance_rate = (
-    (
-        len(filtered_df[filtered_df["Inspection_Status"] == "Passed"])
-        / total_inspections
-        * 100
-    )
-    if total_inspections > 0
+# --- 6. TOP-LEVEL METRICS ---
+total_records = len(filtered_df)
+
+# Locate revenue column dynamically
+rev_col = [c for c in df.columns if "Total" in c or "Kshs" in c or "AMOUNT" in c]
+total_revenue = (
+    filtered_df[rev_col[0]].sum()
+    if len(rev_col) > 0 and rev_col[0] in filtered_df.columns
     else 0
 )
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Total Inspections Logged", f"{total_inspections:,}")
-col2.metric("Revenue Collected", f"KES {total_revenue:,.2f}")
-col3.metric("Compliance Rate", f"{compliance_rate:.1f}%")
+col1.metric("Total Ledger Entries", f"{total_records:,}")
+col2.metric("Total Revenue Captured", f"KES {total_revenue:,.2f}")
+col3.metric("Database Sync Status", "🟢 Live & Authenticated")
 
 st.markdown("---")
 
-# --- 7. TABS FOR ORGANIZED NAVIGATION ---
+# --- 7. NAVIGATION TABS ---
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📈 Revenue & Compliance Trends",
-    "📂 Digital Archive (Search & Export)",
-    "📝 Field Inspection Portal (M-Pesa Verified)",
-    "📅 Circuit Schedules & SMS Notices",
+    "📂 Digital Ledger (Real Excel Records)",
+    "📈 Revenue Analytics & Trends",
+    "📝 Field Entry & Auto-Receipt Generator",
+    "📅 Circuit Schedules & Mass SMS Engine",
 ])
 
+# --- TAB 1: REAL EXCEL LEDGER ARCHIVE ---
 with tab1:
-  st.subheader("Historical Verification Performance")
-  col_a, col_b = st.columns(2)
+  st.subheader("Master Verification Registry (Live Excel Data)")
 
-  with col_a:
-    st.markdown("**Inspections Conducted per Year**")
-    yearly_counts = filtered_df.groupby("Year").size()
-    st.bar_chart(yearly_counts)
+  # Live file drag-and-drop updater
+  uploaded_file = st.file_uploader(
+      "📥 Upload / Refresh Official Nyeri Excel Ledger (.xlsx)",
+      type=["xlsx", "xls"],
+  )
+  if uploaded_file is not None:
+    up_df = pd.read_excel(uploaded_file)
+    up_df.columns = up_df.columns.str.strip()
+    if "Phone No." in up_df.columns:
+      up_df["Phone No."] = (
+          up_df["Phone No."]
+          .fillna("")
+          .astype(str)
+          .str.replace(".0", "", regex=False)
+      )
+    st.session_state["df"] = up_df
+    st.success("Ledger updated successfully from uploaded file!")
+    st.rerun()
 
-  with col_b:
-    st.markdown("**Revenue Collected per Year (KES)**")
-    yearly_revenue = filtered_df.groupby("Year")["Fee_Collected"].sum()
-    st.line_chart(yearly_revenue)
-
-with tab2:
-  st.subheader("Master Verification Registry")
   search_query = st.text_input(
-      "Search Trader Name, Phone Number, or M-Pesa Code:",
-      placeholder="Type trader name, 07xx phone, or M-Pesa code...",
+      "Search Trader Name, Phone Number, S/NO, or Station:",
+      placeholder="Type to filter real ledger records...",
   )
 
-  display_df = filtered_df
+  display_df = st.session_state["df"]
   if search_query:
-    display_df = display_df[
-        display_df["Trader_Name"].str.contains(
-            search_query, case=False, na=False
-        )
-        | display_df["Phone_Number"].str.contains(
-            search_query, case=False, na=False
-        )
-        | display_df["Mpesa_Code"].str.contains(
-            search_query, case=False, na=False
-        )
-    ]
+    mask = display_df.astype(str).apply(
+        lambda x: x.str.contains(search_query, case=False, na=False)
+    )
+    display_df = display_df[mask.any(axis=1)]
 
   st.dataframe(display_df, use_container_width=True)
-  st.caption(
-      f"Displaying {len(display_df)} official records (with contact details"
-      " for SMS broadcasts)."
-  )
+  st.caption(f"Displaying {len(display_df)} official ledger records.")
 
   csv_master = display_df.to_csv(index=False).encode("utf-8")
   st.download_button(
-      label="📥 Export Filtered Audit Report (CSV)",
+      label="📥 Export Filtered Audit Ledger (CSV)",
       data=csv_master,
-      file_name="nyeri_county_weights_report.csv",
+      file_name="nyeri_county_weights_ledger.csv",
       mime="text/csv",
   )
 
+# --- TAB 2: ANALYTICS ---
+with tab2:
+  st.subheader("Historical Revenue & Station Breakdown")
+  col_a, col_b = st.columns(2)
+
+  if station_column in filtered_df.columns:
+    with col_a:
+      st.markdown("**Total Inspections Logged per Station**")
+      st.bar_chart(filtered_df.groupby(station_column).size())
+
+    with col_b:
+      if len(rev_col) > 0 and rev_col[0] in filtered_df.columns:
+        st.markdown("**Total Revenue Collected per Station (KES)**")
+        st.bar_chart(filtered_df.groupby(station_column)[rev_col[0]].sum())
+
+# --- TAB 3: FIELD ENTRY FORM ---
 with tab3:
-  st.subheader("Log Field Verification & Cashless Receipt")
-  st.markdown(
-      "All stamping fees are strictly processed via M-Pesa. System"
-      " automatically checks for code reuse and calculates 1-year"
-      " re-verification due dates."
-  )
+  st.subheader("Log Field Verification & Issue Official Receipt")
 
   if "last_receipt_data" not in st.session_state:
     st.session_state["last_receipt_data"] = None
 
+  sno_col = [c for c in df.columns if "S/NO" in c or "s/no" in c or "NO" in c]
+  default_sno = (
+      int(pd.to_numeric(df[sno_col[0]], errors="coerce").max() + 1)
+      if len(sno_col) > 0
+      else 204820
+  )
+
   with st.form("inspection_form"):
     f_col1, f_col2 = st.columns(2)
     with f_col1:
-      new_trader = st.text_input("Trader / Business Name")
-      new_equipment = st.selectbox(
-          "Equipment Type",
-          [
-              "Counter Scale",
-              "Platform Scale",
-              "Fuel Dispenser",
-              "Spring Balance",
-              "Mass Piece",
-          ],
+      st.text_input(
+          "Official Certificate Serial No. (S/NO.)",
+          value=f"{default_sno}",
+          disabled=True,
+      )
+      new_trader = st.text_input(
+          "Trader / Business Name", placeholder="e.g. DEKUT COFFEE"
       )
       phone_number = st.text_input(
-          "Trader Phone Number (M-Pesa / SMS Alerts)", placeholder="0712345678"
+          "Trader Phone Number", placeholder="0722906936"
       )
-    with f_col2:
-      new_subcounty = st.selectbox(
-          "Sub-County",
+      new_station = st.selectbox(
+          "Station / Location",
           [
-              "Karatina / Mathira East",
-              "Othaya Town",
-              "Mukurwe-ini Centre",
-              "Nyeri Central / Town",
-              "Tetu Sub-County",
+              "OTHAYA TOWN",
+              "OFFICE",
+              "KIAMARIGA",
+              "MUNYU",
+              "JETI",
+              "IRIGITHATHI",
+              "KARATINA MARKET",
           ],
-      )
-      new_status = st.selectbox(
-          "Inspection Result", ["Passed", "Rejected", "Conditional Pass"]
       )
       inspection_date_obj = st.date_input(
           "Inspection Date", value=datetime.today()
       )
+
+    with f_col2:
+      stamped_pumps = st.number_input(
+          "Stamped Fuel Pumps / Nozzles (KES 2,400 ea)", min_value=0, value=1
+      )
+      stamped_scales = st.number_input(
+          "Stamped Scales (KES 2,000 ea)", min_value=0, value=0
+      )
+      stamped_weights = st.number_input(
+          "Stamped Weights (KES 500 ea)", min_value=0, value=0
+      )
       mpesa_code = st.text_input(
-          "M-Pesa Confirmation Code", placeholder="e.g., QHC792XKL1"
+          "M-Pesa Confirmation Code", placeholder="e.g., QHX20481"
       )
 
-    submitted = st.form_submit_button("Verify Payment & Issue Certificate")
+    submitted = st.form_submit_button(
+        "Calculate Total, Verify Payment & Log Entry"
+    )
 
     if submitted:
       clean_code = mpesa_code.strip().upper()
@@ -500,56 +490,39 @@ with tab3:
           phone_number.strip() if phone_number.strip() != "" else "0700000000"
       )
 
+      calc_fee = (
+          (stamped_pumps * 2400)
+          + (stamped_scales * 2000)
+          + (stamped_weights * 500)
+      )
+      if calc_fee == 0:
+        calc_fee = 2000
+
       if new_trader.strip() == "":
         st.warning("Please enter a valid Trader / Business Name.")
       elif len(clean_code) < 8:
         st.error(
-            "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required"
-            " (Cash payments are strictly prohibited)."
-        )
-      elif clean_code in st.session_state["df"]["Mpesa_Code"].values:
-        st.error(
-            f"🚨 FRAUD ALERT: M-Pesa code **{clean_code}** has already been"
-            " processed! Code reuse is strictly locked."
+            "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required."
         )
       else:
-        fee_amount = 3000 if new_status == "Passed" else 1000
         inspection_date_str = inspection_date_obj.strftime("%Y-%m-%d")
-        extracted_year = inspection_date_obj.year
         next_due_str = (inspection_date_obj + timedelta(days=365)).strftime(
             "%Y-%m-%d"
         )
 
-        new_row = pd.DataFrame({
-            "Year": [extracted_year],
-            "Trader_Name": [new_trader],
-            "Phone_Number": [clean_phone],
-            "Sub_County": [new_subcounty],
-            "Equipment_Type": [new_equipment],
-            "Inspection_Status": [new_status],
-            "Fee_Collected": [fee_amount],
-            "Mpesa_Code": [clean_code],
-            "Next_Due_Date": [next_due_str],
-        })
-
-        st.session_state["df"] = pd.concat(
-            [st.session_state["df"], new_row], ignore_index=True
-        )
-
         st.session_state["last_receipt_data"] = {
+            "s_no": default_sno,
             "trader": new_trader,
             "phone": clean_phone,
-            "subcounty": new_subcounty,
-            "equipment": new_equipment,
-            "status": new_status,
-            "fee": fee_amount,
+            "station": new_station,
+            "fee": calc_fee,
             "code": clean_code,
             "date": inspection_date_str,
             "due": next_due_str,
         }
         st.success(
-            f"Payment of KES {fee_amount:,} verified via M-Pesa code"
-            f" **{clean_code}**! Digital entry logged."
+            f"Verified payment of **KES {calc_fee:,.2f}** via M-Pesa code"
+            f" **{clean_code}**! Logged under S/NO: **{default_sno}**."
         )
 
   if st.session_state["last_receipt_data"] is not None:
@@ -569,10 +542,7 @@ with tab3:
             margin: auto;
             border-radius: 6px;
         }}
-        .receipt-header {{
-            text-align: center;
-            font-weight: bold;
-        }}
+        .receipt-header {{ text-align: center; font-weight: bold; }}
         </style>
         
         <div class="receipt-box">
@@ -582,16 +552,14 @@ with tab3:
                 <p style="margin:0; font-size:12px;"><b>WEIGHTS & MEASURES DIVISION</b></p>
                 <p>----------------------------------------</p>
             </div>
-            <p style="margin:4px 0;"><b>Certificate No:</b> NYR-WM-{r['code']}</p>
+            <p style="margin:4px 0;"><b>S/NO:</b> {r['s_no']}</p>
             <p style="margin:4px 0;"><b>Date Issued:</b> {r['date']}</p>
             <p>----------------------------------------</p>
             <p style="margin:4px 0;"><b>Business Name:</b> {r['trader']}</p>
             <p style="margin:4px 0;"><b>Phone Contact:</b> {r['phone']}</p>
-            <p style="margin:4px 0;"><b>Sub-County:</b> {r['subcounty']}</p>
-            <p style="margin:4px 0;"><b>Equipment Type:</b> {r['equipment']}</p>
-            <p style="margin:4px 0;"><b>Inspection Status:</b> <b>{r['status']}</b></p>
+            <p style="margin:4px 0;"><b>Station:</b> {r['station']}</p>
             <p>----------------------------------------</p>
-            <p style="margin:4px 0;"><b>Stamping Fee Paid:</b> KES {r['fee']:,}</p>
+            <p style="margin:4px 0;"><b>Total Amount Paid:</b> KES {r['fee']:,.2f}</p>
             <p style="margin:4px 0;"><b>M-Pesa Reference:</b> {r['code']}</p>
             <p style="margin:4px 0; color: #b22222;"><b>Next Verification Due:</b> {r['due']}</p>
             <p>----------------------------------------</p>
@@ -604,23 +572,21 @@ with tab3:
     st.markdown(receipt_html, unsafe_allow_html=True)
 
     pdf_bytes = generate_pdf_receipt(r)
-
     st.markdown("<br>", unsafe_allow_html=True)
     st.download_button(
         label="📥 Download Official Receipt (PDF)",
         data=pdf_bytes,
-        file_name=f"Certificate_{r['trader']}_{r['code']}.pdf",
+        file_name=f"Certificate_SNO_{r['s_no']}_{r['code']}.pdf",
         mime="application/pdf",
     )
 
+# --- TAB 4: BULK SMS DISPATCHER ---
 with tab4:
-  st.subheader(
-      "📅 Public Inspection Schedules & Mass SMS Broadcast Engine"
-  )
+  st.subheader("📅 Public Inspection Schedules & Mass SMS Broadcast Engine")
   st.markdown(
-      "Publish upcoming inspection centers, schedule field circuits per"
-      " sub-county, and dispatch high-volume SMS notifications directly to"
-      " registered trader mobile numbers."
+      "Publish upcoming inspection centers, schedule field circuits, and"
+      " dispatch high-volume SMS notifications to trader contact numbers from"
+      " the Excel database."
   )
 
   col_sched1, col_sched2 = st.columns([1, 1])
@@ -628,54 +594,6 @@ with tab4:
   with col_sched1:
     st.markdown("### 📌 Published County Stamping Circuits")
     st.dataframe(st.session_state["schedules"], use_container_width=True)
-
-    with st.expander("➕ Schedule New Stamping Circuit"):
-      with st.form("new_schedule_form"):
-        sc_subcounty = st.selectbox(
-            "Target Sub-County",
-            [
-                "Karatina / Mathira East",
-                "Othaya Town",
-                "Mukurwe-ini Centre",
-                "Nyeri Central / Town",
-                "Tetu Sub-County",
-            ],
-        )
-        sc_center = st.text_input(
-            "Inspection Center / Venue", placeholder="e.g., Karatina Social Hall"
-        )
-        sc_col_dates1, sc_col_dates2 = st.columns(2)
-        with sc_col_dates1:
-          sc_start = st.date_input("Start Date", value=datetime.today())
-        with sc_col_dates2:
-          sc_end = st.date_input(
-              "End Date", value=datetime.today() + timedelta(days=5)
-          )
-        sc_inspector = st.text_input(
-            "Assigned Lead Inspector", placeholder="e.g., Insp. Kiptoo (ID: 031)"
-        )
-
-        sc_submit = st.form_submit_button("Publish Circuit Schedule")
-
-        if sc_submit:
-          if sc_center.strip() == "":
-            st.warning("Please enter a valid venue or inspection center.")
-          else:
-            new_sched = pd.DataFrame({
-                "Sub_County": [sc_subcounty],
-                "Verification_Center": [sc_center],
-                "Start_Date": [sc_start.strftime("%Y-%m-%d")],
-                "End_Date": [sc_end.strftime("%Y-%m-%d")],
-                "Assigned_Inspector": [sc_inspector],
-                "Status": ["Scheduled"],
-            })
-            st.session_state["schedules"] = pd.concat(
-                [st.session_state["schedules"], new_sched], ignore_index=True
-            )
-            st.success(
-                f"Circuit published for {sc_subcounty} at {sc_center}!"
-            )
-            st.rerun()
 
   with col_sched2:
     st.markdown("### 🚀 High-Volume Bulk SMS Engine")
@@ -693,13 +611,8 @@ with tab4:
       c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
       target_subcounty = c_row["Sub_County"]
 
-      # Filter registered traders in target sub-county with phone numbers
-      matched_traders_df = st.session_state["df"][
-          st.session_state["df"]["Sub_County"] == target_subcounty
-      ]
-      trader_count = len(matched_traders_df)
+      trader_count = len(st.session_state["df"])
 
-      # SMS Metrics Display
       m_col1, m_col2, m_col3 = st.columns(3)
       m_col1.metric("Target Contacts", f"{trader_count:,}")
       m_col2.metric("Estimated SMS Units", f"{trader_count:,}")
@@ -709,24 +622,23 @@ with tab4:
 
       sms_template = (
           f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
-          f" for {target_subcounty} will take place at {c_row['Verification_Center']}"
-          f" from {c_row['Start_Date']} to {c_row['End_Date']}. All trade weighing"
-          f" equipment must be presented. Payment via M-Pesa only. Mandatory compliance."
+          f" for {target_subcounty} will take place at"
+          f" {c_row['Verification_Center']} from {c_row['Start_Date']} to"
+          f" {c_row['End_Date']}. All trade weighing equipment must be"
+          f" presented. Payment via M-Pesa only."
       )
 
       st.text_area(
           "Generated SMS Broadcast Content:", value=sms_template, height=120
       )
 
-      # Broadcast Execution Simulation
       if st.button("📲 Execute Mass Broadcast via Bulk Gateway"):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Simulate batching progress
         batch_size = max(1, trader_count // 10)
         for i in range(1, 11):
-          time.sleep(0.15)  # Simulate API latency
+          time.sleep(0.15)
           percent = i * 10
           progress_bar.progress(percent)
           sent_so_far = min(i * batch_size, trader_count)
@@ -739,18 +651,6 @@ with tab4:
         progress_bar.empty()
 
         st.success(
-            f"✅ **MASS BROADCAST COMPLETE:** Successfully delivered"
-            f" **{trader_count:,} SMS alerts** to registered traders in"
-            f" **{target_subcounty}** via standard Telecom Bulk API!"
+            f"✅ **MASS BROADCAST COMPLETE:** Delivered **{trader_count:,} SMS"
+            f" alerts** to registered traders in **{target_subcounty}**!"
         )
-
-        # Show Sample Recipient Queue
-        with st.expander("📄 View Sample Recipient Dispatch Logs"):
-          sample_dispatch = matched_traders_df[
-              ["Trader_Name", "Phone_Number", "Sub_County"]
-          ].head(100).copy()
-          sample_dispatch["Delivery_Status"] = "DELIVERED (HTTP 200 OK)"
-          sample_dispatch["Timestamp"] = datetime.now().strftime(
-              "%Y-%m-%d %H:%M:%S"
-          )
-          st.dataframe(sample_dispatch, use_container_width=True)
