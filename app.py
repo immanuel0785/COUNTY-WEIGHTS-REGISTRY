@@ -283,9 +283,20 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
     return None
 
 
-# --- 4. SESSION STATE & WORKBOOK DICTIONARY ---
+# --- 4. SESSION STATE & GIT BUNDLED WORKBOOK AUTO-LOADER ---
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
+  default_workbook_path = "nyeri_ledger.xlsx"
+  try:
+    xl_workbook = pd.ExcelFile(default_workbook_path)
+    for s_name in xl_workbook.sheet_names:
+      parsed_s = process_uploaded_excel(
+          default_workbook_path, sheet_name=s_name
+      )
+      if parsed_s is not None and not parsed_s.empty:
+        st.session_state["sheets_dict"][str(s_name)] = parsed_s
+  except Exception as e:
+    pass
 
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
@@ -309,48 +320,26 @@ if "schedules" not in st.session_state:
       "Status": ["Scheduled", "Scheduled", "Upcoming"],
   })
 
-# Role check helper
 is_admin_or_director = (
     "Administrator" in st.session_state["user_role"]
     or "Director" in st.session_state["user_name"]
 )
 
 
-# --- 5. SIDEBAR CONTROL PANEL & MULTI-SHEET UPLOADER ---
+# --- 5. SIDEBAR CONTROL PANEL ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
 st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
-# Restrict Excel Ledger Upload to Director / Admin
-if is_admin_or_director:
-  st.sidebar.subheader("👑 [Director Restricted] Upload Workbook")
-  uploaded_sidebar_file = st.sidebar.file_uploader(
-      "Upload .xlsx Ledger File", type=["xlsx", "xls"]
-  )
+st.sidebar.info(
+    "📂 **Master Registry Source:**\nAuto-loaded securely from County Git"
+    f" Repository (`nyeri_ledger.xlsx`). Sheets loaded:"
+    f" **{len(st.session_state['sheets_dict'])}**"
+)
 
-  if uploaded_sidebar_file is not None:
-    try:
-      xl_workbook = pd.ExcelFile(uploaded_sidebar_file)
-      for s_name in xl_workbook.sheet_names:
-        parsed_s = process_uploaded_excel(
-            uploaded_sidebar_file, sheet_name=s_name
-        )
-        if parsed_s is not None and not parsed_s.empty:
-          st.session_state["sheets_dict"][str(s_name)] = parsed_s
-      st.sidebar.success(
-          f"Loaded {len(st.session_state['sheets_dict'])} sheets successfully!"
-      )
-    except Exception as err:
-      st.sidebar.error(f"Error reading workbook: {err}")
-else:
-  st.sidebar.info(
-      "🔒 **Note:** Multi-year workbook uploads are restricted to the Director"
-      " of Trade / County Administrator."
-  )
-
-# Database items merge into sheets_dict
+# Database items merge into sheets_dict dynamically
 db_df = load_all_db_records()
 if not db_df.empty:
   for yr, group in db_df.groupby("year_sheet"):
@@ -365,13 +354,17 @@ if not db_df.empty:
         }
     )
     if yr in st.session_state["sheets_dict"]:
-      st.session_state["sheets_dict"][yr] = pd.concat(
+      # Combine and drop exact duplicates based on serial number and trader name
+      merged = pd.concat(
           [st.session_state["sheets_dict"][yr], clean_group], ignore_index=True
+      )
+      st.session_state["sheets_dict"][yr] = merged.drop_duplicates(
+          subset=["S/NO.", "NAME"], keep="last"
       )
     else:
       st.session_state["sheets_dict"][yr] = clean_group
 
-# Sheet Selector (Accessible to everyone)
+# Sheet Selector
 available_sheets = list(st.session_state["sheets_dict"].keys())
 selected_sheet_name = "All Sheets (Unison)"
 if available_sheets:
@@ -385,7 +378,7 @@ if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-# Build Active Dataframe (Everyone can see all sub-counties)
+# Build Active Dataframe
 if selected_sheet_name == "All Sheets (Unison)" or not available_sheets:
   combined_list = []
   for sname, sdf in st.session_state["sheets_dict"].items():
@@ -410,7 +403,7 @@ else:
   df_active = st.session_state["sheets_dict"][selected_sheet_name].copy()
   df_active["YEAR_SHEET"] = selected_sheet_name
 
-# Station Filter (Open to all users across all sub-counties)
+# Station Filter
 station_cols = [c for c in df_active.columns if "station" in c.lower()]
 station_col = station_cols[0] if station_cols else None
 station_list = (
@@ -418,7 +411,9 @@ station_list = (
     if station_col
     else ["All"]
 )
-selected_station = st.sidebar.selectbox("Filter by Sub-County / Station", station_list)
+selected_station = st.sidebar.selectbox(
+    "Filter by Sub-County / Station", station_list
+)
 
 filtered_df = df_active.copy()
 if selected_station != "All" and station_col:
@@ -498,8 +493,8 @@ with tab1:
 
   st.markdown("---")
 
-  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS
-  st.markdown("### 📥 Download Master Workbook")
+  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS (INCLUDES ALL NEW TRADERS AUTOMATICALLY)
+  st.markdown("### 📥 Download Up-To-Date Master Excel Workbook")
   output_excel = io.BytesIO()
   with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
     if st.session_state["sheets_dict"]:
@@ -519,9 +514,7 @@ with tab1:
   # 1-CLICK ANNUAL ROLLOVER: RESTRICTED TO DIRECTOR / ADMINISTRATOR ONLY
   if is_admin_or_director:
     st.markdown("---")
-    st.markdown(
-        "### 👑 [Director Restricted] 1-Click Annual Trader Rollover"
-    )
+    st.markdown("### 👑 [Director Restricted] 1-Click Annual Trader Rollover")
     st.markdown(
         "Automatically roll over trader profiles from a previous year into a"
         " new year sheet without re-typing."
@@ -603,9 +596,7 @@ with tab2:
             db_full[[
                 "created_at",
                 "inspector_logged",
-                "station_name"
-                if "station_name" in db_full.columns
-                else "station",
+                "station" if "station" in db_full.columns else "station",
                 "trader_name",
                 "total_amount",
             ]],
@@ -742,14 +733,35 @@ with tab3:
             "inspector": st.session_state["user_name"],
         }
 
+        # 1. SAVE PERMANENTLY TO SQLITE DB
         save_record_to_db(rec_payload)
+
+        # 2. INSTANTLY APPEND TO ACTIVE EXCEL WORKBOOK IN SESSION STATE
+        new_row = pd.DataFrame([{
+            "DATE": inspection_date_str,
+            "S/NO.": default_sno,
+            "NAME": new_trader,
+            "Phone No.": clean_phone,
+            "STATION": new_station,
+            "Total Amount kshs": calc_fee,
+        }])
+
+        if target_sheet_entry in st.session_state["sheets_dict"]:
+          st.session_state["sheets_dict"][target_sheet_entry] = pd.concat(
+              [st.session_state["sheets_dict"][target_sheet_entry], new_row],
+              ignore_index=True,
+          )
+        else:
+          st.session_state["sheets_dict"][target_sheet_entry] = new_row
+
         st.session_state["last_receipt_data"] = rec_payload
 
         st.success(
-            f"✅ Saved Permanently! Verified payment of **KES {calc_fee:,.2f}**"
-            f" via M-Pesa code **{clean_code}**! Logged under S/NO:"
-            f" **{default_sno}**."
+            f"✅ Trader Saved Permanently! Updated Excel Ledger & Database with"
+            f" payment of **KES {calc_fee:,.2f}** via M-Pesa code"
+            f" **{clean_code}**! (S/NO: **{default_sno}**)"
         )
+        st.rerun()
 
   if st.session_state["last_receipt_data"] is not None:
     r = st.session_state["last_receipt_data"]
