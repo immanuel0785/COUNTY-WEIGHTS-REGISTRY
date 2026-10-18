@@ -84,6 +84,7 @@ def init_db():
             stamped_weights INTEGER DEFAULT 0,
             total_amount REAL DEFAULT 0,
             mpesa_code TEXT,
+            inspector_logged TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -99,8 +100,8 @@ def save_record_to_db(record):
   cursor = conn.cursor()
   cursor.execute(
       """
-        INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
       (
           record["year_sheet"],
@@ -114,6 +115,7 @@ def save_record_to_db(record):
           record["weights"],
           record["fee"],
           record["code"],
+          record["inspector"],
       ),
   )
   conn.commit()
@@ -174,7 +176,7 @@ if not st.session_state["authenticated"]:
 
   st.info(
       "💡 **Demo Login Credentials for Presentation:**\n"
-      "• **Administrator:** ID: `NYR_ADMIN_001` | PIN: `0001`\n"
+      "• **Administrator / Director:** ID: `NYR_ADMIN_001` | PIN: `0001`\n"
       "• **Karatina Inspector:** ID: `NYR_INSP_042` | PIN: `4200`\n"
       "• **Othaya Inspector:** ID: `NYR_INSP_018` | PIN: `1800`"
   )
@@ -307,6 +309,12 @@ if "schedules" not in st.session_state:
       "Status": ["Scheduled", "Scheduled", "Upcoming"],
   })
 
+# Role check helper
+is_admin_or_director = (
+    "Administrator" in st.session_state["user_role"]
+    or "Director" in st.session_state["user_name"]
+)
+
 
 # --- 5. SIDEBAR CONTROL PANEL & MULTI-SHEET UPLOADER ---
 st.sidebar.header("🔍 Registry Controls")
@@ -315,26 +323,32 @@ st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("📂 Upload Multi-Year Excel Ledger")
-uploaded_sidebar_file = st.sidebar.file_uploader(
-    "Upload .xlsx Ledger File", type=["xlsx", "xls"]
-)
+# Restrict Excel Ledger Upload to Director / Admin
+if is_admin_or_director:
+  st.sidebar.subheader("👑 [Director Restricted] Upload Workbook")
+  uploaded_sidebar_file = st.sidebar.file_uploader(
+      "Upload .xlsx Ledger File", type=["xlsx", "xls"]
+  )
 
-if uploaded_sidebar_file is not None:
-  try:
-    xl_workbook = pd.ExcelFile(uploaded_sidebar_file)
-    for s_name in xl_workbook.sheet_names:
-      parsed_s = process_uploaded_excel(
-          uploaded_sidebar_file, sheet_name=s_name
+  if uploaded_sidebar_file is not None:
+    try:
+      xl_workbook = pd.ExcelFile(uploaded_sidebar_file)
+      for s_name in xl_workbook.sheet_names:
+        parsed_s = process_uploaded_excel(
+            uploaded_sidebar_file, sheet_name=s_name
+        )
+        if parsed_s is not None and not parsed_s.empty:
+          st.session_state["sheets_dict"][str(s_name)] = parsed_s
+      st.sidebar.success(
+          f"Loaded {len(st.session_state['sheets_dict'])} sheets successfully!"
       )
-      if parsed_s is not None and not parsed_s.empty:
-        st.session_state["sheets_dict"][str(s_name)] = parsed_s
-    st.sidebar.success(
-        f"Successfully loaded {len(st.session_state['sheets_dict'])} sheets"
-        " into engine!"
-    )
-  except Exception as err:
-    st.sidebar.error(f"Error reading workbook: {err}")
+    except Exception as err:
+      st.sidebar.error(f"Error reading workbook: {err}")
+else:
+  st.sidebar.info(
+      "🔒 **Note:** Multi-year workbook uploads are restricted to the Director"
+      " of Trade / County Administrator."
+  )
 
 # Database items merge into sheets_dict
 db_df = load_all_db_records()
@@ -357,7 +371,7 @@ if not db_df.empty:
     else:
       st.session_state["sheets_dict"][yr] = clean_group
 
-# Sheet Selector
+# Sheet Selector (Accessible to everyone)
 available_sheets = list(st.session_state["sheets_dict"].keys())
 selected_sheet_name = "All Sheets (Unison)"
 if available_sheets:
@@ -371,7 +385,7 @@ if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-# Build Active Dataframe
+# Build Active Dataframe (Everyone can see all sub-counties)
 if selected_sheet_name == "All Sheets (Unison)" or not available_sheets:
   combined_list = []
   for sname, sdf in st.session_state["sheets_dict"].items():
@@ -396,7 +410,7 @@ else:
   df_active = st.session_state["sheets_dict"][selected_sheet_name].copy()
   df_active["YEAR_SHEET"] = selected_sheet_name
 
-# Station Filter
+# Station Filter (Open to all users across all sub-counties)
 station_cols = [c for c in df_active.columns if "station" in c.lower()]
 station_col = station_cols[0] if station_cols else None
 station_list = (
@@ -404,7 +418,7 @@ station_list = (
     if station_col
     else ["All"]
 )
-selected_station = st.sidebar.selectbox("Filter by Station", station_list)
+selected_station = st.sidebar.selectbox("Filter by Sub-County / Station", station_list)
 
 filtered_df = df_active.copy()
 if selected_station != "All" and station_col:
@@ -464,7 +478,7 @@ with tab1:
   st.subheader("Master Verification Registry (Dynamic Excel View)")
   st.markdown(
       "Inspect multi-year historical records ingested from your departmental"
-      " spreadsheets."
+      " spreadsheets across all sub-counties."
   )
 
   search_query = st.text_input(
@@ -483,28 +497,31 @@ with tab1:
   st.caption(f"Displaying {len(display_df)} records.")
 
   st.markdown("---")
-  c_exp1, c_exp2 = st.columns(2)
 
-  with c_exp1:
-    st.markdown("### 📥 Download Complete Master Excel Workbook")
-    output_excel = io.BytesIO()
-    with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-      if st.session_state["sheets_dict"]:
-        for sname, sdf in st.session_state["sheets_dict"].items():
-          sdf.to_excel(writer, sheet_name=str(sname)[:30], index=False)
-      else:
-        filtered_df.to_excel(writer, sheet_name="Master_Ledger", index=False)
-    excel_data = output_excel.getvalue()
+  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS
+  st.markdown("### 📥 Download Master Workbook")
+  output_excel = io.BytesIO()
+  with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+    if st.session_state["sheets_dict"]:
+      for sname, sdf in st.session_state["sheets_dict"].items():
+        sdf.to_excel(writer, sheet_name=str(sname)[:30], index=False)
+    else:
+      filtered_df.to_excel(writer, sheet_name="Master_Ledger", index=False)
+  excel_data = output_excel.getvalue()
 
-    st.download_button(
-        label="📊 Download Full Multi-Sheet Workbook (.xlsx)",
-        data=excel_data,
-        file_name="nyeri_county_weights_and_measures_master.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  st.download_button(
+      label="📊 Download Full Multi-Sheet Workbook (.xlsx)",
+      data=excel_data,
+      file_name="nyeri_county_weights_and_measures_master.xlsx",
+      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  )
+
+  # 1-CLICK ANNUAL ROLLOVER: RESTRICTED TO DIRECTOR / ADMINISTRATOR ONLY
+  if is_admin_or_director:
+    st.markdown("---")
+    st.markdown(
+        "### 👑 [Director Restricted] 1-Click Annual Trader Rollover"
     )
-
-  with c_exp2:
-    st.markdown("### 🔄 1-Click Annual Trader Rollover")
     st.markdown(
         "Automatically roll over trader profiles from a previous year into a"
         " new year sheet without re-typing."
@@ -523,7 +540,7 @@ with tab1:
             "New Target Year / Sheet Name:", placeholder="2027"
         )
 
-      if st.button("🚀 Roll Over Traders to New Year"):
+      if st.button("🚀 Execute Annual Rollover"):
         if target_year.strip() != "":
           src_df = st.session_state["sheets_dict"][source_sheet].copy()
 
@@ -556,47 +573,59 @@ with tab1:
 # --- TAB 2: MULTI-YEAR REVENUE & STATION ANALYTICS ---
 with tab2:
   st.subheader("📈 Multi-Year Revenue & Station Analytics")
+  st.markdown(
+      "Overview of all sub-counties, inspection volumes, and revenue collection"
+      " metrics across years."
+  )
 
   if station_col and station_col in filtered_df.columns:
-    st.markdown("#### 📊 Station Inspection Volume & Revenue Breakdown")
     col_g1, col_g2 = st.columns(2)
 
     with col_g1:
-      st.markdown("**Inspections Volume per Station**")
+      st.markdown("**Inspections Volume per Sub-County**")
       st.bar_chart(filtered_df.groupby(station_col).size())
 
     with col_g2:
       if rev_col and rev_col in filtered_df.columns:
-        st.markdown("**Revenue Collected per Station (KES)**")
+        st.markdown("**Revenue Collected per Sub-County (KES)**")
         station_rev = filtered_df.groupby(station_col)[rev_col].sum()
         st.bar_chart(station_rev)
 
-    st.markdown("---")
-    st.markdown("#### 📉 Multi-Year Growth Trends (Year-over-Year)")
-
-    if "YEAR_SHEET" in df_active.columns and len(available_sheets) > 1:
-      col_t1, col_t2 = st.columns(2)
-
-      with col_t1:
-        st.markdown("**Yearly Registered Trader Growth**")
-        trader_growth = df_active.groupby("YEAR_SHEET").size()
-        st.line_chart(trader_growth)
-
-      with col_t2:
-        if rev_col:
-          st.markdown("**Yearly Revenue Collection Trend (KES)**")
-          rev_growth = df_active.groupby("YEAR_SHEET")[rev_col].sum()
-          st.line_chart(rev_growth)
+    # DIRECTOR EXCLUSIVE AUDIT VIEW
+    if is_admin_or_director:
+      st.markdown("---")
+      st.markdown(
+          "### 👑 [Director Exclusive] Inspector Performance & Activity Log"
+      )
+      db_full = load_all_db_records()
+      if not db_full.empty and "inspector_logged" in db_full.columns:
+        st.dataframe(
+            db_full[[
+                "created_at",
+                "inspector_logged",
+                "station_name"
+                if "station_name" in db_full.columns
+                else "station",
+                "trader_name",
+                "total_amount",
+            ]],
+            use_container_width=True,
+        )
+      else:
+        st.info(
+            "Live inspector activity logs will populate here as field entries"
+            " are made."
+        )
   else:
-    st.info(
-        "Upload a dataset containing Station and Revenue columns to view"
-        " analytics."
-    )
+    st.info("Station or Revenue columns not detected in the current sheet.")
 
 
 # --- TAB 3: FIELD ENTRY & AUTO-RECEIPT GENERATOR ---
 with tab3:
   st.subheader("📝 Log Field Verification & Issue Official Receipt")
+  st.markdown(
+      f"Logged in as: **{st.session_state['user_name']}** ({st.session_state['user_role']})"
+  )
 
   if "last_receipt_data" not in st.session_state:
     st.session_state["last_receipt_data"] = None
@@ -636,7 +665,7 @@ with tab3:
           "Trader Phone Number", placeholder="0722906936"
       )
       new_station = st.selectbox(
-          "Station / Location",
+          "Station / Location (All Sub-Counties)",
           [
               "OTHAYA TOWN",
               "OFFICE",
@@ -645,6 +674,8 @@ with tab3:
               "JETI",
               "IRIGITHATHI",
               "KARATINA MARKET",
+              "MATHIRA EAST",
+              "NYERI TOWN",
           ],
       )
       inspection_date_obj = st.date_input(
@@ -708,6 +739,7 @@ with tab3:
             "code": clean_code,
             "date": inspection_date_str,
             "due": next_due_str,
+            "inspector": st.session_state["user_name"],
         }
 
         save_record_to_db(rec_payload)
