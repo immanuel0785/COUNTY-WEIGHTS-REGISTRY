@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import io
+import sqlite3
 import time
 import numpy as np
 import pandas as pd
@@ -16,7 +17,6 @@ st.set_page_config(
 # --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
 nyeri_custom_css = """
 <style>
-    /* Nyeri Brand Palette: Forest Green (#006837), Sky Blue (#0056B3) */
     h1, h2, h3 {
         color: #006837 !important;
         font-weight: 700 !important;
@@ -63,8 +63,71 @@ nyeri_custom_css = """
 """
 st.markdown(nyeri_custom_css, unsafe_allow_html=True)
 
+# --- 1. SQLITE PERMANENT DATABASE ENGINE ---
+DB_FILE = "nyeri_weights_master.db"
 
-# --- 1. SECURE GOVERNMENT AUTHENTICATION GATE & USER ROLES ---
+
+def init_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year_sheet TEXT,
+            date_entry TEXT,
+            serial_no TEXT,
+            trader_name TEXT,
+            phone_no TEXT,
+            station TEXT,
+            stamped_pumps INTEGER DEFAULT 0,
+            stamped_scales INTEGER DEFAULT 0,
+            stamped_weights INTEGER DEFAULT 0,
+            total_amount REAL DEFAULT 0,
+            mpesa_code TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+  conn.commit()
+  conn.close()
+
+
+init_db()
+
+
+def save_record_to_db(record):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+      (
+          record["year_sheet"],
+          record["date"],
+          record["s_no"],
+          record["trader"],
+          record["phone"],
+          record["station"],
+          record["pumps"],
+          record["scales"],
+          record["weights"],
+          record["fee"],
+          record["code"],
+      ),
+  )
+  conn.commit()
+  conn.close()
+
+
+def load_all_db_records():
+  conn = sqlite3.connect(DB_FILE)
+  df = pd.read_sql_query("SELECT * FROM ledger_entries", conn)
+  conn.close()
+  return df
+
+
+# --- 2. AUTHENTICATION ---
 if "authenticated" not in st.session_state:
   st.session_state["authenticated"] = False
   st.session_state["user_name"] = ""
@@ -145,22 +208,18 @@ if not st.session_state["authenticated"]:
         st.rerun()
       else:
         st.error("⚠️ Authentication Failed: Invalid Staff ID or secure PIN.")
-
   st.stop()
 
 
-# --- 2. FOOLPROOF HEADER-DETECTION & EXCEL LOADER ---
+# --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER ---
 def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
   try:
-    # 1. Read raw sheet without headers to scan for the title/header row
     df_raw = pd.read_excel(
         uploaded_file_or_path, sheet_name=sheet_name, header=None
     )
-
     if df_raw.empty:
       return None
 
-    # 2. Automatically find which row contains the column titles
     header_row_idx = 0
     for idx, row in df_raw.head(15).iterrows():
       row_str = " ".join([str(val).lower() for val in row.values if pd.notnull(val)])
@@ -179,19 +238,13 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
         header_row_idx = idx
         break
 
-    # 3. Read the sheet natively setting the detected row as the header
     df = pd.read_excel(
         uploaded_file_or_path, sheet_name=sheet_name, header=header_row_idx
     )
-
-    # 4. Clean column names and drop completely empty rows
     df.columns = df.columns.astype(str).str.strip()
     df = df.dropna(how="all").reset_index(drop=True)
-
-    # Remove any unnamed artifact columns if they crept in
     df = df.loc[:, ~df.columns.str.contains("^Unnamed", na=False)]
 
-    # 5. Clean phone numbers safely
     for col in df.columns:
       if any(p in col.lower() for p in ["phone", "no.", "tel", "contact"]):
         if "s/no" not in col.lower():
@@ -199,7 +252,6 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
               df[col].fillna("").astype(str).str.replace(".0", "", regex=False)
           )
 
-    # 6. Convert numeric fees and counts for analytics
     for col in df.columns:
       if any(
           n in col.lower()
@@ -217,7 +269,6 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
       ):
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # 7. Format date columns cleanly
     for col in df.columns:
       if "date" in col.lower():
         df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime(
@@ -230,35 +281,9 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
     return None
 
 
-# Initialize session state dataframe
-if "df" not in st.session_state:
-  try:
-    st.session_state["df"] = process_uploaded_excel("nyeri_ledger.xlsx")
-  except Exception:
-    st.session_state["df"] = pd.DataFrame(
-        columns=[
-            "DATE",
-            "S/NO.",
-            "NAME",
-            "Phone No.",
-            "STATION",
-            "Total Amount kshs",
-        ]
-    )
-
-if st.session_state["df"] is None or st.session_state["df"].empty:
-  st.session_state["df"] = pd.DataFrame(
-      columns=[
-          "DATE",
-          "S/NO.",
-          "NAME",
-          "Phone No.",
-          "STATION",
-          "Total Amount kshs",
-      ]
-  )
-
-df = st.session_state["df"]
+# --- 4. SESSION STATE & WORKBOOK DICTIONARY ---
+if "sheets_dict" not in st.session_state:
+  st.session_state["sheets_dict"] = {}
 
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
@@ -283,58 +308,7 @@ if "schedules" not in st.session_state:
   })
 
 
-# --- 3. PDF RECEIPT GENERATOR FUNCTION ---
-def generate_pdf_receipt(r):
-  buffer = io.BytesIO()
-  c = canvas.Canvas(buffer, pagesize=(226, 420))
-  c.setFont("Courier-Bold", 10)
-
-  y = 405
-  c.drawCentredString(113, y, "COUNTY GOV OF NYERI")
-  y -= 12
-  c.setFont("Courier", 8)
-  c.drawCentredString(113, y, "WEIGHTS & MEASURES DIVISION")
-  y -= 14
-  c.drawString(15, y, "-" * 38)
-  y -= 12
-
-  c.setFont("Courier-Bold", 8)
-  c.drawString(15, y, "CERTIFICATE OF VERIFICATION")
-  y -= 14
-  c.setFont("Courier", 8)
-  c.drawString(15, y, f"S/NO: {r['s_no']}")
-  y -= 12
-  c.drawString(15, y, f"Date Issued: {r['date']}")
-  y -= 12
-  c.drawString(15, y, f"Business: {r['trader']}")
-  y -= 12
-  c.drawString(15, y, f"Phone: {r['phone']}")
-  y -= 12
-  c.drawString(15, y, f"Station: {r['station']}")
-  y -= 14
-  c.drawString(15, y, "-" * 38)
-  y -= 12
-
-  c.drawString(15, y, f"Total Amount: KES {r['fee']:,.2f}")
-  y -= 12
-  c.drawString(15, y, f"M-Pesa Ref: {r['code']}")
-  y -= 12
-  c.drawString(15, y, f"Next Due: {r['due']}")
-  y -= 14
-  c.drawString(15, y, "-" * 38)
-  y -= 14
-
-  c.drawCentredString(113, y, "Authorized Inspector")
-  y -= 10
-  c.drawCentredString(113, y, "*** OFFICIAL DIGITAL RECORD ***")
-
-  c.showPage()
-  c.save()
-  buffer.seek(0)
-  return buffer.getvalue()
-
-
-# --- 4. SIDEBAR CONTROL PANEL & MULTI-SHEET UPLOADER ---
+# --- 5. SIDEBAR CONTROL PANEL & MULTI-SHEET UPLOADER ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
 st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
@@ -349,56 +323,95 @@ uploaded_sidebar_file = st.sidebar.file_uploader(
 if uploaded_sidebar_file is not None:
   try:
     xl_workbook = pd.ExcelFile(uploaded_sidebar_file)
-    sheet_names_list = xl_workbook.sheet_names
-
-    selected_sheet = st.sidebar.selectbox("Select Ledger Sheet", sheet_names_list)
-
-    if st.sidebar.button("Load Selected Sheet"):
-      loaded_df = process_uploaded_excel(
-          uploaded_sidebar_file, sheet_name=selected_sheet
+    for s_name in xl_workbook.sheet_names:
+      parsed_s = process_uploaded_excel(
+          uploaded_sidebar_file, sheet_name=s_name
       )
-      if loaded_df is not None and not loaded_df.empty:
-        st.session_state["df"] = loaded_df
-        st.sidebar.success(
-            f"Loaded {len(loaded_df):,} rows from sheet '{selected_sheet}'!"
-        )
-        st.rerun()
-      else:
-        st.sidebar.error("⚠️ Selected sheet returned 0 rows.")
+      if parsed_s is not None and not parsed_s.empty:
+        st.session_state["sheets_dict"][str(s_name)] = parsed_s
+    st.sidebar.success(
+        f"Successfully loaded {len(st.session_state['sheets_dict'])} sheets"
+        " into engine!"
+    )
   except Exception as err:
-    st.sidebar.error(f"Error reading workbook sheets: {err}")
+    st.sidebar.error(f"Error reading workbook: {err}")
+
+# Database items merge into sheets_dict
+db_df = load_all_db_records()
+if not db_df.empty:
+  for yr, group in db_df.groupby("year_sheet"):
+    clean_group = group.rename(
+        columns={
+            "date_entry": "DATE",
+            "serial_no": "S/NO.",
+            "trader_name": "NAME",
+            "phone_no": "Phone No.",
+            "station": "STATION",
+            "total_amount": "Total Amount kshs",
+        }
+    )
+    if yr in st.session_state["sheets_dict"]:
+      st.session_state["sheets_dict"][yr] = pd.concat(
+          [st.session_state["sheets_dict"][yr], clean_group], ignore_index=True
+      )
+    else:
+      st.session_state["sheets_dict"][yr] = clean_group
+
+# Sheet Selector
+available_sheets = list(st.session_state["sheets_dict"].keys())
+selected_sheet_name = "All Sheets (Unison)"
+if available_sheets:
+  selected_sheet_name = st.sidebar.selectbox(
+      "Select Active Year / Sheet:",
+      ["All Sheets (Unison)"] + available_sheets,
+  )
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔒 Secure Logout"):
   st.session_state["authenticated"] = False
   st.rerun()
 
-# Dynamic Station Filtering
-station_col_candidates = [
-    c
-    for c in df.columns
-    if "station" in c.lower() or "sub_county" in c.lower() or "county" in c.lower()
-]
-station_column = (
-    station_col_candidates[0] if len(station_col_candidates) > 0 else None
-)
+# Build Active Dataframe
+if selected_sheet_name == "All Sheets (Unison)" or not available_sheets:
+  combined_list = []
+  for sname, sdf in st.session_state["sheets_dict"].items():
+    temp = sdf.copy()
+    temp["YEAR_SHEET"] = str(sname)
+    combined_list.append(temp)
+  if combined_list:
+    df_active = pd.concat(combined_list, ignore_index=True)
+  else:
+    df_active = pd.DataFrame(
+        columns=[
+            "DATE",
+            "S/NO.",
+            "NAME",
+            "Phone No.",
+            "STATION",
+            "Total Amount kshs",
+            "YEAR_SHEET",
+        ]
+    )
+else:
+  df_active = st.session_state["sheets_dict"][selected_sheet_name].copy()
+  df_active["YEAR_SHEET"] = selected_sheet_name
 
+# Station Filter
+station_cols = [c for c in df_active.columns if "station" in c.lower()]
+station_col = station_cols[0] if station_cols else None
 station_list = (
-    ["All"] + list(df[station_column].dropna().unique())
-    if station_column and station_column in df.columns
+    ["All"] + list(df_active[station_col].dropna().unique())
+    if station_col
     else ["All"]
 )
 selected_station = st.sidebar.selectbox("Filter by Station", station_list)
 
-filtered_df = df
-if (
-    selected_station != "All"
-    and station_column
-    and station_column in filtered_df.columns
-):
-  filtered_df = filtered_df[filtered_df[station_column] == selected_station]
+filtered_df = df_active.copy()
+if selected_station != "All" and station_col:
+  filtered_df = filtered_df[filtered_df[station_col] == selected_station]
 
-# --- 5. MAIN DASHBOARD HEADER ---
+
+# --- 6. MAIN HEADER & TOP METRICS ---
 st.markdown(
     """
 <div class="nyeri-banner">
@@ -416,36 +429,37 @@ st.markdown(
 )
 st.markdown("---")
 
-# --- 6. TOP-LEVEL METRICS ---
-total_records = len(filtered_df)
-
-rev_col_candidates = [
+rev_cols = [
     c
-    for c in df.columns
+    for c in df_active.columns
     if "total" in c.lower() or "kshs" in c.lower() or "amount" in c.lower()
 ]
-rev_col = rev_col_candidates[0] if len(rev_col_candidates) > 0 else None
+rev_col = rev_cols[0] if rev_cols else None
 
+total_records = len(filtered_df)
 total_revenue = (
     filtered_df[rev_col].sum() if rev_col and rev_col in filtered_df.columns else 0
 )
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Ledger Entries", f"{total_records:,}")
-col2.metric("Total Revenue Captured", f"KES {total_revenue:,.2f}")
-col3.metric("Database Status", "🟢 Live & Connected")
+m1, m2, m3 = st.columns(3)
+m1.metric("Total Ledger Entries", f"{total_records:,}")
+m2.metric("Total Revenue Captured", f"KES {total_revenue:,.2f}")
+m3.metric(
+    "Active View Scope",
+    f"📅 {selected_sheet_name} ({len(available_sheets)} Sheets)",
+)
 
 st.markdown("---")
 
 # --- 7. NAVIGATION TABS ---
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📂 Digital Ledger Archive",
-    "📈 Revenue Analytics & Trends",
+    "📂 Digital Ledger Archive & Rollover",
+    "📈 Multi-Year Revenue & Station Analytics",
     "📝 Field Entry & Auto-Receipt Generator",
     "📅 Circuit Schedules & Mass SMS Engine",
 ])
 
-# --- TAB 1: ARCHIVE & TABLE ---
+# --- TAB 1: ARCHIVE, ROLLOVER & EXCEL EXPORT ---
 with tab1:
   st.subheader("Master Verification Registry (Dynamic Excel View)")
   st.markdown(
@@ -468,47 +482,155 @@ with tab1:
   st.dataframe(display_df, use_container_width=True)
   st.caption(f"Displaying {len(display_df)} records.")
 
-  csv_master = display_df.to_csv(index=False).encode("utf-8")
-  st.download_button(
-      label="📥 Export Filtered Audit Ledger (CSV)",
-      data=csv_master,
-      file_name="nyeri_county_weights_audit.csv",
-      mime="text/csv",
-  )
+  st.markdown("---")
+  c_exp1, c_exp2 = st.columns(2)
 
-# --- TAB 2: ANALYTICS ---
+  with c_exp1:
+    st.markdown("### 📥 Download Complete Master Excel Workbook")
+    output_excel = io.BytesIO()
+    with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+      if st.session_state["sheets_dict"]:
+        for sname, sdf in st.session_state["sheets_dict"].items():
+          sdf.to_excel(writer, sheet_name=str(sname)[:30], index=False)
+      else:
+        filtered_df.to_excel(writer, sheet_name="Master_Ledger", index=False)
+    excel_data = output_excel.getvalue()
+
+    st.download_button(
+        label="📊 Download Full Multi-Sheet Workbook (.xlsx)",
+        data=excel_data,
+        file_name="nyeri_county_weights_and_measures_master.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+  with c_exp2:
+    st.markdown("### 🔄 1-Click Annual Trader Rollover")
+    st.markdown(
+        "Automatically roll over trader profiles from a previous year into a"
+        " new year sheet without re-typing."
+    )
+
+    if available_sheets:
+      col_r1, col_r2 = st.columns(2)
+      with col_r1:
+        source_sheet = st.selectbox(
+            "Source Sheet:",
+            available_sheets,
+            key="src_sheet",
+        )
+      with col_r2:
+        target_year = st.text_input(
+            "New Target Year / Sheet Name:", placeholder="2027"
+        )
+
+      if st.button("🚀 Roll Over Traders to New Year"):
+        if target_year.strip() != "":
+          src_df = st.session_state["sheets_dict"][source_sheet].copy()
+
+          # Reset transaction metrics for new year
+          new_sheet_df = pd.DataFrame()
+          name_col = [c for c in src_df.columns if "name" in c.lower()]
+          phone_col = [c for c in src_df.columns if "phone" in c.lower()]
+          station_col_s = [c for c in src_df.columns if "station" in c.lower()]
+
+          new_sheet_df["DATE"] = datetime.now().strftime("%Y-%m-%d")
+          new_sheet_df["S/NO."] = "PENDING"
+          new_sheet_df["NAME"] = (
+              src_df[name_col[0]] if name_col else "Unknown Trader"
+          )
+          new_sheet_df["Phone No."] = (
+              src_df[phone_col[0]] if phone_col else "0700000000"
+          )
+          new_sheet_df["STATION"] = (
+              src_df[station_col_s[0]] if station_col_s else "OFFICE"
+          )
+          new_sheet_df["Total Amount kshs"] = 0
+
+          st.session_state["sheets_dict"][target_year.strip()] = new_sheet_df
+          st.success(
+              f"✅ Rolled over {len(new_sheet_df):,} traders into sheet"
+              f" '{target_year.strip()}'!"
+          )
+          st.rerun()
+
+
+# --- TAB 2: MULTI-YEAR REVENUE & STATION ANALYTICS ---
 with tab2:
-  st.subheader("Historical Revenue & Station Breakdown")
-  col_a, col_b = st.columns(2)
+  st.subheader("📈 Multi-Year Revenue & Station Analytics")
 
-  if station_column and station_column in filtered_df.columns:
-    with col_a:
-      st.markdown("**Inspections per Station**")
-      st.bar_chart(filtered_df.groupby(station_column).size())
+  if station_col and station_col in filtered_df.columns:
+    st.markdown("#### 🥧 Station Revenue Contribution & Inspection Volume")
+    col_g1, col_g2 = st.columns(2)
 
-    with col_b:
+    with col_g1:
+      st.markdown("**Inspections Volume per Station**")
+      st.bar_chart(filtered_df.groupby(station_col).size())
+
+    with col_g2:
       if rev_col and rev_col in filtered_df.columns:
-        st.markdown("**Revenue Collected per Station (KES)**")
-        st.bar_chart(filtered_df.groupby(station_column)[rev_col].sum())
-  else:
-    st.info("Station or Revenue columns not detected in the current sheet.")
+        st.markdown("**Revenue Contribution Market Share (KES)**")
+        station_rev = (
+            filtered_df.groupby(station_col)[rev_col]
+            .sum()
+            .reset_index()
+        )
 
-# --- TAB 3: FIELD ENTRY FORM ---
+        # Matplotlib Pie Chart
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.pie(
+            station_rev[rev_col],
+            labels=station_rev[station_col],
+            autopct="%1.1f%%",
+            startangle=140,
+        )
+        ax.axis("equal")
+        st.pyplot(fig)
+
+    st.markdown("---")
+    st.markdown("#### 📉 Multi-Year Growth Trends (Year-over-Year)")
+
+    if "YEAR_SHEET" in df_active.columns and len(available_sheets) > 1:
+      col_t1, col_t2 = st.columns(2)
+
+      with col_t1:
+        st.markdown("**Yearly Registered Trader Growth**")
+        trader_growth = df_active.groupby("YEAR_SHEET").size()
+        st.line_chart(trader_growth)
+
+      with col_t2:
+        if rev_col:
+          st.markdown("**Yearly Revenue Collection Trend (KES)**")
+          rev_growth = df_active.groupby("YEAR_SHEET")[rev_col].sum()
+          st.line_chart(rev_growth)
+  else:
+    st.info(
+        "Upload a dataset containing Station and Revenue columns to view"
+        " analytics."
+    )
+
+
+# --- TAB 3: FIELD ENTRY & AUTO-RECEIPT GENERATOR ---
 with tab3:
-  st.subheader("Log Field Verification & Issue Official Receipt")
+  st.subheader("📝 Log Field Verification & Issue Official Receipt")
 
   if "last_receipt_data" not in st.session_state:
     st.session_state["last_receipt_data"] = None
 
   sno_col_candidates = [
-      c for c in df.columns if "s/no" in c.lower() or "serial" in c.lower()
+      c
+      for c in df_active.columns
+      if "s/no" in c.lower() or "serial" in c.lower()
   ]
   sno_col = sno_col_candidates[0] if len(sno_col_candidates) > 0 else None
 
   default_sno = 204820
-  if sno_col and sno_col in df.columns:
+  if sno_col and sno_col in df_active.columns:
     try:
-      default_sno = int(pd.to_numeric(df[sno_col], errors="coerce").max() + 1)
+      default_sno = int(
+          pd.to_numeric(df_active[sno_col], errors="coerce").max() + 1
+      )
     except Exception:
       pass
 
@@ -519,6 +641,10 @@ with tab3:
           "Official Certificate Serial No. (S/NO.)",
           value=f"{default_sno}",
           disabled=True,
+      )
+      target_sheet_entry = st.selectbox(
+          "Save To Year Sheet:",
+          available_sheets if available_sheets else ["2026"],
       )
       new_trader = st.text_input(
           "Trader / Business Name", placeholder="e.g. DEKUT COFFEE"
@@ -586,19 +712,29 @@ with tab3:
             "%Y-%m-%d"
         )
 
-        st.session_state["last_receipt_data"] = {
+        rec_payload = {
+            "year_sheet": target_sheet_entry,
             "s_no": default_sno,
             "trader": new_trader,
             "phone": clean_phone,
             "station": new_station,
+            "pumps": stamped_pumps,
+            "scales": stamped_scales,
+            "weights": stamped_weights,
             "fee": calc_fee,
             "code": clean_code,
             "date": inspection_date_str,
             "due": next_due_str,
         }
+
+        # SAVE PERMANENTLY TO SQLITE DB
+        save_record_to_db(rec_payload)
+        st.session_state["last_receipt_data"] = rec_payload
+
         st.success(
-            f"Verified payment of **KES {calc_fee:,.2f}** via M-Pesa code"
-            f" **{clean_code}**! Logged under S/NO: **{default_sno}**."
+            f"✅ Saved Permanently! Verified payment of **KES {calc_fee:,.2f}**"
+            f" via M-Pesa code **{clean_code}**! Logged under S/NO:"
+            f" **{default_sno}**."
         )
 
   if st.session_state["last_receipt_data"] is not None:
@@ -640,21 +776,13 @@ with tab3:
             <p style="margin:4px 0; color: #b22222;"><b>Next Verification Due:</b> {r['due']}</p>
             <p>----------------------------------------</p>
             <div class="receipt-header">
-                <p style="margin:0; font-size:11px;"><i>Status: Verified & Synced to County Server</i></p>
+                <p style="margin:0; font-size:11px;"><i>Status: Saved & Synced to County Server</i></p>
                 <p style="margin:0; font-size:10px;">*** OFFICIAL DIGITAL STAMP ***</p>
             </div>
         </div>
         """
     st.markdown(receipt_html, unsafe_allow_html=True)
 
-    pdf_bytes = generate_pdf_receipt(r)
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button(
-        label="📥 Download Official Receipt (PDF)",
-        data=pdf_bytes,
-        file_name=f"Certificate_SNO_{r['s_no']}_{r['code']}.pdf",
-        mime="application/pdf",
-    )
 
 # --- TAB 4: BULK SMS DISPATCHER ---
 with tab4:
@@ -686,7 +814,7 @@ with tab4:
       c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
       target_subcounty = c_row["Sub_County"]
 
-      trader_count = len(st.session_state["df"])
+      trader_count = len(filtered_df)
 
       m_col1, m_col2, m_col3 = st.columns(3)
       m_col1.metric("Target Contacts", f"{trader_count:,}")
