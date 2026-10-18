@@ -527,7 +527,6 @@ with tab1:
         if target_year.strip() != "":
           src_df = st.session_state["sheets_dict"][source_sheet].copy()
 
-          # Reset transaction metrics for new year
           new_sheet_df = pd.DataFrame()
           name_col = [c for c in src_df.columns if "name" in c.lower()]
           phone_col = [c for c in src_df.columns if "phone" in c.lower()]
@@ -559,7 +558,7 @@ with tab2:
   st.subheader("📈 Multi-Year Revenue & Station Analytics")
 
   if station_col and station_col in filtered_df.columns:
-    st.markdown("#### 🥧 Station Revenue Contribution & Inspection Volume")
+    st.markdown("#### 📊 Station Inspection Volume & Revenue Breakdown")
     col_g1, col_g2 = st.columns(2)
 
     with col_g1:
@@ -568,25 +567,9 @@ with tab2:
 
     with col_g2:
       if rev_col and rev_col in filtered_df.columns:
-        st.markdown("**Revenue Contribution Market Share (KES)**")
-        station_rev = (
-            filtered_df.groupby(station_col)[rev_col]
-            .sum()
-            .reset_index()
-        )
-
-        # Matplotlib Pie Chart
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.pie(
-            station_rev[rev_col],
-            labels=station_rev[station_col],
-            autopct="%1.1f%%",
-            startangle=140,
-        )
-        ax.axis("equal")
-        st.pyplot(fig)
+        st.markdown("**Revenue Collected per Station (KES)**")
+        station_rev = filtered_df.groupby(station_col)[rev_col].sum()
+        st.bar_chart(station_rev)
 
     st.markdown("---")
     st.markdown("#### 📉 Multi-Year Growth Trends (Year-over-Year)")
@@ -623,7 +606,7 @@ with tab3:
       for c in df_active.columns
       if "s/no" in c.lower() or "serial" in c.lower()
   ]
-  sno_col = sno_col_candidates[0] if len(sno_col_candidates) > 0 else None
+  sno_col = sno_col_candidates[0] if sno_col_candidates else None
 
   default_sno = 204820
   if sno_col and sno_col in df_active.columns:
@@ -727,7 +710,6 @@ with tab3:
             "due": next_due_str,
         }
 
-        # SAVE PERMANENTLY TO SQLITE DB
         save_record_to_db(rec_payload)
         st.session_state["last_receipt_data"] = rec_payload
 
