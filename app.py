@@ -263,13 +263,11 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER (CACHED FOR SPEED) ---
+# --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER (CACHED) ---
 @st.cache_data
-def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
+def process_uploaded_excel(file_bytes_io, sheet_name=0):
   try:
-    df_raw = pd.read_excel(
-        uploaded_file_or_path, sheet_name=sheet_name, header=None
-    )
+    df_raw = pd.read_excel(file_bytes_io, sheet_name=sheet_name, header=None)
     if df_raw.empty:
       return None
 
@@ -291,9 +289,7 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
         header_row_idx = idx
         break
 
-    df = pd.read_excel(
-        uploaded_file_or_path, sheet_name=sheet_name, header=header_row_idx
-    )
+    df = pd.read_excel(file_bytes_io, sheet_name=sheet_name, header=header_row_idx)
     df.columns = df.columns.astype(str).str.strip()
     df = df.dropna(how="all").reset_index(drop=True)
     df = df.loc[:, ~df.columns.str.contains("^Unnamed", na=False)]
@@ -334,7 +330,26 @@ def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
     return None
 
 
-# --- 4. SESSION STATE & GIT BUNDLED WORKBOOK AUTO-LOADER ---
+# --- 4. SESSION STATE & GIT WORKBOOK AUTO-LOADER (BYTES CACHED) ---
+@st.cache_data
+def load_workbook_from_git(file_path):
+  sheets = {}
+  try:
+    with open(file_path, "rb") as f:
+      file_bytes = f.read()
+
+    xl_workbook = pd.ExcelFile(io.BytesIO(file_bytes))
+    for s_name in xl_workbook.sheet_names:
+      parsed_s = process_uploaded_excel(
+          io.BytesIO(file_bytes), sheet_name=s_name
+      )
+      if parsed_s is not None and not parsed_s.empty:
+        sheets[str(s_name)] = parsed_s
+  except Exception as e:
+    pass
+  return sheets
+
+
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
   default_workbook_path = "nyeri_ledger.xlsx"
@@ -342,13 +357,9 @@ if "sheets_dict" not in st.session_state:
     with st.spinner(
         "⏳ Loading County Historical Ledgers from Git... Please wait."
     ):
-      xl_workbook = pd.ExcelFile(default_workbook_path)
-      for s_name in xl_workbook.sheet_names:
-        parsed_s = process_uploaded_excel(
-            default_workbook_path, sheet_name=s_name
-        )
-        if parsed_s is not None and not parsed_s.empty:
-          st.session_state["sheets_dict"][str(s_name)] = parsed_s
+      st.session_state["sheets_dict"] = load_workbook_from_git(
+          default_workbook_path
+      )
   except Exception as e:
     pass
 
@@ -513,24 +524,45 @@ m3.metric(
 
 st.markdown("---")
 
-# --- 7. NAVIGATION TABS ---
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📂 Digital Ledger Archive & Rollover",
+# --- 7. NAVIGATION TABS (INCLUDING INSPECTION DUE DASHBOARD) ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📂 Digital Ledger Archive & Loaded Sheets",
     "📈 Multi-Year Revenue & Station Analytics",
     "📝 Field Entry & Auto-Receipt Generator",
     "📅 Circuit Schedules & Mass SMS Engine",
+    "🚨 Inspection Due Dashboard",
 ])
 
-# --- TAB 1: ARCHIVE, ROLLOVER & EXCEL EXPORT ---
+# --- TAB 1: ARCHIVE, LOADED SHEET INSPECTOR & ROLLOVER ---
 with tab1:
-  st.subheader("Master Verification Registry (Dynamic Excel View)")
+  st.subheader("Master Verification Registry & Loaded Workbook Sheets")
   st.markdown(
-      "Inspect multi-year historical records ingested from your departmental"
-      " spreadsheets across all sub-counties."
+      "Inspect multi-year historical records and view raw sheets currently"
+      " loaded into memory from Git."
   )
 
+  # VISUALIZE LOADED SHEET SECTION
+  with st.expander(
+      "👁️ View Raw Loaded Workbook Sheets (`nyeri_ledger.xlsx`)", expanded=True
+  ):
+    if st.session_state["sheets_dict"]:
+      sheet_to_inspect = st.selectbox(
+          "Select Sheet to Inspect:", list(st.session_state["sheets_dict"].keys())
+      )
+      st.write(
+          f"Showing raw parsed data for sheet: **{sheet_to_inspect}** (Rows:"
+          f" {len(st.session_state['sheets_dict'][sheet_to_inspect]):,})"
+      )
+      st.dataframe(
+          st.session_state["sheets_dict"][sheet_to_inspect],
+          use_container_width=True,
+      )
+    else:
+      st.warning("No Excel sheets currently loaded in memory.")
+
+  st.markdown("---")
   search_query = st.text_input(
-      "Search Ledger Records:",
+      "Search Filter Active Ledger Records:",
       placeholder="Type trader name, phone, serial number, or station...",
   )
 
@@ -1068,3 +1100,101 @@ with tab4:
         disabled=True,
     )
     st.warning("Status: **Pending Official County Software Licensing**.")
+
+
+# --- TAB 5: INSPECTION DUE DASHBOARD ---
+with tab5:
+  st.subheader("🚨 Inspection & Calibration Due Status Dashboard")
+  st.markdown(
+      "Automatic color-coded calibration compliance monitor for commercial"
+      " scales, fuel pumps, and butcher scales."
+  )
+
+  date_cols = [c for c in filtered_df.columns if "date" in c.lower()]
+  name_cols = [c for c in filtered_df.columns if "name" in c.lower()]
+  station_cols_d = [c for c in filtered_df.columns if "station" in c.lower()]
+
+  if date_cols and name_cols:
+    d_col = date_cols[0]
+    n_col = name_cols[0]
+    s_col_d = station_cols_d[0] if station_cols_d else None
+
+    # Calculate calibration status based on 365 days from inspection date
+    today = datetime.today()
+
+    dashboard_rows = []
+    for idx, row in filtered_df.iterrows():
+      trader_val = row[n_col]
+      station_val = row[s_col_d] if s_col_d else "N/A"
+      raw_date = row[d_col]
+
+      try:
+        insp_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d")
+        due_date = insp_date + timedelta(days=365)
+        days_left = (due_date - today).days
+
+        if days_left < 0:
+          status = "🔴 EXPIRED (Calibration Overdue)"
+        elif days_left <= 30:
+          status = "🟡 UPCOMING (Due within 30 Days)"
+        else:
+          status = "🟢 COMPLIANT (Active Calibration)"
+      except Exception:
+        due_date = "N/A"
+        days_left = 999
+        status = "🟢 COMPLIANT (Active Calibration)"
+
+      dashboard_rows.append({
+          "Trader / Business": trader_val,
+          "Station": station_val,
+          "Last Inspection": str(raw_date)[:10],
+          "Calibration Due Date": (
+              due_date.strftime("%Y-%m-%d")
+              if isinstance(due_date, datetime)
+              else "N/A"
+          ),
+          "Compliance Status": status,
+      })
+
+    dash_df = pd.DataFrame(dashboard_rows)
+
+    # Metrics summary
+    expired_count = len(
+        dash_df[dash_df["ComplianceStatus"].str.contains("EXPIRED")]
+    )
+    upcoming_count = len(
+        dash_df[dash_df["ComplianceStatus"].str.contains("UPCOMING")]
+    )
+    compliant_count = len(
+        dash_df[dash_df["ComplianceStatus"].str.contains("COMPLIANT")]
+    )
+
+    d1, d2, d3 = st.columns(3)
+    d1.metric("🔴 Expired Calibrations", f"{expired_count:,}")
+    d2.metric("🟡 Due Within 30 Days", f"{upcoming_count:,}")
+    d3.metric("🟢 Fully Compliant", f"{compliant_count:,}")
+
+    st.markdown("---")
+
+    status_filter = st.selectbox(
+        "Filter by Compliance Status:",
+        [
+            "All Records",
+            "🔴 EXPIRED (Calibration Overdue)",
+            "🟡 UPCOMING (Due within 30 Days)",
+            "🟢 COMPLIANT (Active Calibration)",
+        ],
+    )
+
+    final_dash_view = dash_df
+    if status_filter != "All Records":
+      final_dash_view = dash_df[
+          dash_df["ComplianceStatus"] == status_filter
+      ]
+
+    st.dataframe(final_dash_view, use_container_width=True)
+  else:
+    st.info(
+        "Date and Name columns are required in the sheet to generate the"
+        " calibration compliance dashboard."
+    )
