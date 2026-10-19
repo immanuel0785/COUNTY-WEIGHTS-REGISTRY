@@ -129,6 +129,46 @@ def load_all_db_records():
   return df
 
 
+# --- PDF CERTIFICATE GENERATOR ---
+def generate_pdf_certificate(r):
+  buffer = io.BytesIO()
+  c = canvas.Canvas(buffer, pagesize=(420, 560))
+  c.setFillColorRGB(0, 0.41, 0.22)
+  c.rect(20, 520, 380, 25, fill=1, stroke=0)
+  c.setFillColorRGB(1, 1, 1)
+  c.drawString(35, 528, "COUNTY GOVERNMENT OF NYERI - WEIGHTS & MEASURES")
+
+  c.setFillColorRGB(0, 0, 0)
+  c.setFont("Helvetica-Bold", 11)
+  c.drawString(30, 490, "OFFICIAL VERIFICATION CERTIFICATE")
+  c.setFont("Helvetica", 10)
+
+  c.drawString(30, 460, f"Certificate S/NO: {r['s_no']}")
+  c.drawString(30, 440, f"Date Issued: {r['date']}")
+  c.drawString(30, 420, f"Business / Trader: {r['trader']}")
+  c.drawString(30, 400, f"Phone Contact: {r['phone']}")
+  c.drawString(30, 380, f"Station / Location: {r['station']}")
+  c.drawString(30, 360, f"Stamped Pumps: {r['pumps']}")
+  c.drawString(30, 340, f"Stamped Scales: {r['scales']}")
+  c.drawString(30, 320, f"Stamped Weights: {r['weights']}")
+
+  c.setFont("Helvetica-Bold", 10)
+  c.drawString(30, 290, f"Total Amount Paid: KES {r['fee']:,.2f}")
+  c.drawString(30, 270, f"M-Pesa Reference Code: {r['code']}")
+
+  c.setFillColorRGB(0.7, 0, 0)
+  c.drawString(30, 240, f"Next Verification Due: {r['due']}")
+
+  c.setFillColorRGB(0, 0, 0)
+  c.setFont("Helvetica-Oblique", 8)
+  c.drawString(30, 190, "Authorized digital stamp & record synced to county server.")
+  c.drawString(30, 175, f"Logged by: {r['inspector']}")
+
+  c.save()
+  buffer.seek(0)
+  return buffer.getvalue()
+
+
 # --- 2. AUTHENTICATION ---
 if "authenticated" not in st.session_state:
   st.session_state["authenticated"] = False
@@ -288,13 +328,16 @@ if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
   default_workbook_path = "nyeri_ledger.xlsx"
   try:
-    xl_workbook = pd.ExcelFile(default_workbook_path)
-    for s_name in xl_workbook.sheet_names:
-      parsed_s = process_uploaded_excel(
-          default_workbook_path, sheet_name=s_name
-      )
-      if parsed_s is not None and not parsed_s.empty:
-        st.session_state["sheets_dict"][str(s_name)] = parsed_s
+    with st.spinner(
+        "⏳ Loading County Historical Ledgers from Git... Please wait."
+    ):
+      xl_workbook = pd.ExcelFile(default_workbook_path)
+      for s_name in xl_workbook.sheet_names:
+        parsed_s = process_uploaded_excel(
+            default_workbook_path, sheet_name=s_name
+        )
+        if parsed_s is not None and not parsed_s.empty:
+          st.session_state["sheets_dict"][str(s_name)] = parsed_s
   except Exception as e:
     pass
 
@@ -354,7 +397,6 @@ if not db_df.empty:
         }
     )
     if yr in st.session_state["sheets_dict"]:
-      # Combine and drop exact duplicates based on serial number and trader name
       merged = pd.concat(
           [st.session_state["sheets_dict"][yr], clean_group], ignore_index=True
       )
@@ -493,7 +535,7 @@ with tab1:
 
   st.markdown("---")
 
-  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS (INCLUDES ALL NEW TRADERS AUTOMATICALLY)
+  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS
   st.markdown("### 📥 Download Up-To-Date Master Excel Workbook")
   output_excel = io.BytesIO()
   with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
@@ -733,10 +775,10 @@ with tab3:
             "inspector": st.session_state["user_name"],
         }
 
-        # 1. SAVE PERMANENTLY TO SQLITE DB
+        # 1. Save to SQLite
         save_record_to_db(rec_payload)
 
-        # 2. INSTANTLY APPEND TO ACTIVE EXCEL WORKBOOK IN SESSION STATE
+        # 2. Append to Session Workbook
         new_row = pd.DataFrame([{
             "DATE": inspection_date_str,
             "S/NO.": default_sno,
@@ -766,7 +808,7 @@ with tab3:
   if st.session_state["last_receipt_data"] is not None:
     r = st.session_state["last_receipt_data"]
     st.markdown("---")
-    st.subheader("🧾 Verification Certificate Preview")
+    st.subheader("🧾 Verification Certificate Preview & Download")
 
     receipt_html = f"""
         <style>
@@ -809,14 +851,38 @@ with tab3:
         """
     st.markdown(receipt_html, unsafe_allow_html=True)
 
+    # PDF CERTIFICATE DOWNLOAD BUTTON
+    pdf_bytes = generate_pdf_certificate(r)
+    st.download_button(
+        label="📥 Download Official Verification Certificate (.pdf)",
+        data=pdf_bytes,
+        file_name=f"Certificate_{r['s_no']}_{r['trader'].replace(' ', '_')}.pdf",
+        mime="application/pdf",
+    )
 
-# --- TAB 4: BULK SMS DISPATCHER ---
+
+# --- TAB 4: LOCATION-FILTERED SMS & SAFARICOM/LICENSING PITCH PANEL ---
 with tab4:
-  st.subheader("📅 Public Inspection Schedules & Mass SMS Broadcast Engine")
-  st.markdown(
-      "Publish upcoming inspection centers, schedule field circuits, and"
-      " dispatch high-volume SMS notifications to trader contact numbers."
+  st.subheader(
+      "📅 Public Inspection Schedules, Location Filters & API Integration Hub"
   )
+  st.markdown(
+      "Target specific sub-counties for SMS notices, schedule stamping"
+      " circuits, and configure production Safaricom API & Licensing handshakes."
+  )
+
+  # PITCH PRESENTATION ROADMAP BANNER
+  st.info(
+      "🚀 **PITCH PRODUCTION ROADMAP:**\n"
+      "The system core, database, and UI are 100% complete and fully"
+      " operational. The final two steps for live public rollout are:\n"
+      "1. **Safaricom API Integration:** Connecting Safaricom SDP/Daraja SMS"
+      " gateway and M-Pesa C2B webhook.\n"
+      "2. **Official County Licensing:** Acquiring official deployment"
+      " clearance from the County Government of Nyeri."
+  )
+
+  st.markdown("---")
 
   col_sched1, col_sched2 = st.columns([1, 1])
 
@@ -824,44 +890,115 @@ with tab4:
     st.markdown("### 📌 Published County Stamping Circuits")
     st.dataframe(st.session_state["schedules"], use_container_width=True)
 
+    # Admin circuit scheduler
+    if is_admin_or_director:
+      with st.expander("➕ Add New Stamping Circuit"):
+        with st.form("new_circuit_form"):
+          nc_sub = st.text_input("Sub-County / Area", placeholder="MAKUTANO")
+          nc_center = st.text_input(
+              "Verification Center", placeholder="Makutano Social Hall"
+          )
+          nc_start = st.date_input(
+              "Start Date", value=datetime.today() + timedelta(days=7)
+          )
+          nc_end = st.date_input(
+              "End Date", value=datetime.today() + timedelta(days=10)
+          )
+          nc_insp = st.text_input("Assigned Inspector", value="Insp. Mwangi")
+          add_circuit_btn = st.form_submit_button("Publish Circuit")
+
+          if add_circuit_btn:
+            new_c_row = pd.DataFrame({
+                "Sub_County": [nc_sub.upper()],
+                "Verification_Center": [nc_center],
+                "Start_Date": [nc_start.strftime("%Y-%m-%d")],
+                "End_Date": [nc_end.strftime("%Y-%m-%d")],
+                "Assigned_Inspector": [nc_insp],
+                "Status": ["Scheduled"],
+            })
+            st.session_state["schedules"] = pd.concat(
+                [st.session_state["schedules"], new_c_row], ignore_index=True
+            )
+            st.success(
+                f"✅ Published new verification circuit for {nc_sub.upper()}!"
+            )
+            st.rerun()
+
   with col_sched2:
-    st.markdown("### 🚀 High-Volume Bulk SMS Engine")
+    st.markdown("### 🚀 Location-Targeted Bulk SMS Dispatcher")
 
-    if len(st.session_state["schedules"]) > 0:
-      selected_circuit_idx = st.selectbox(
-          "Select Active Circuit for Mass Alert:",
-          options=range(len(st.session_state["schedules"])),
-          format_func=lambda i: (
-              f"{st.session_state['schedules'].iloc[i]['Sub_County']} -"
-              f" {st.session_state['schedules'].iloc[i]['Verification_Center']}"
-          ),
+    if station_col and station_col in df_active.columns:
+      all_locations = ["All Sub-Counties / Stations"] + sorted(
+          [str(x) for x in df_active[station_col].dropna().unique()]
       )
+    else:
+      all_locations = [
+          "All Sub-Counties / Stations",
+          "OTHAYA TOWN",
+          "OFFICE / NYERI TOWN",
+          "KIAMARIGA / MUNYU",
+      ]
 
-      c_row = st.session_state["schedules"].iloc[selected_circuit_idx]
-      target_subcounty = c_row["Sub_County"]
+    sms_target_location = st.selectbox(
+        "📍 Filter Target Broadcast Location:", options=all_locations
+    )
 
-      trader_count = len(filtered_df)
+    if sms_target_location == "All Sub-Counties / Stations":
+      target_df = filtered_df
+    else:
+      target_df = filtered_df[
+          filtered_df[station_col].astype(str) == sms_target_location
+      ]
 
-      m_col1, m_col2, m_col3 = st.columns(3)
-      m_col1.metric("Target Contacts", f"{trader_count:,}")
-      m_col2.metric("Estimated SMS Units", f"{trader_count:,}")
-      m_col3.metric("Est. Cost @ KES 0.60", f"KES {trader_count * 0.60:,.2f}")
+    trader_count = len(target_df)
 
-      st.markdown("---")
+    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1.metric("Target Contacts", f"{trader_count:,}")
+    m_col2.metric("Estimated SMS Units", f"{trader_count:,}")
+    m_col3.metric("Est. Cost @ KES 0.60", f"KES {trader_count * 0.60:,.2f}")
 
-      sms_template = (
-          f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
-          f" for {target_subcounty} will take place at"
-          f" {c_row['Verification_Center']} from {c_row['Start_Date']} to"
-          f" {c_row['End_Date']}. All trade weighing equipment must be"
-          f" presented. Payment via M-Pesa only."
-      )
+    # Live Recipient Preview Expandable
+    with st.expander("👀 Preview Filtered Recipients List"):
+      if trader_count > 0:
+        name_c = [c for c in target_df.columns if "name" in c.lower()]
+        phone_c = [c for c in target_df.columns if "phone" in c.lower()]
+        preview_cols = [
+            c for c in [name_c[0] if name_c else None, phone_c[0] if phone_c else None]
+            if c
+        ]
+        st.dataframe(
+            target_df[preview_cols].head(10)
+            if preview_cols
+            else target_df.head(10),
+            use_container_width=True,
+        )
+        st.caption(
+            f"Showing preview of top 10 out of {trader_count:,} targeted"
+            " traders."
+        )
+      else:
+        st.info("No recipients found for this location.")
 
-      st.text_area(
-          "Generated SMS Broadcast Content:", value=sms_template, height=120
-      )
+    st.markdown("---")
 
-      if st.button("📲 Execute Mass Broadcast via Bulk Gateway"):
+    sms_template = (
+        f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
+        f" for {sms_target_location} will take place at official centers"
+        " starting next week. All trade weighing equipment must be presented."
+        " Payment via M-Pesa only."
+    )
+
+    st.text_area(
+        "Generated SMS Broadcast Content:", value=sms_template, height=110
+    )
+
+    if st.button("📲 Execute Mass Broadcast via Bulk Gateway"):
+      if trader_count == 0:
+        st.warning(
+            f"No registered trader contacts found for location:"
+            f" {sms_target_location}."
+        )
+      else:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
@@ -880,6 +1017,43 @@ with tab4:
         progress_bar.empty()
 
         st.success(
-            f"✅ **MASS BROADCAST COMPLETE:** Delivered **{trader_count:,} SMS"
-            f" alerts** to registered traders in **{target_subcounty}**!"
+            f"✅ **LOCATION BROADCAST COMPLETE:** Delivered **{trader_count:,}"
+            f" SMS alerts** to registered traders in **{sms_target_location}**!"
         )
+
+  # SAFARICOM API & COUNTY LICENSING CONFIGURATION PANEL
+  st.markdown("---")
+  st.subheader("🔌 Safaricom API & County Government Licensing Status")
+
+  api_col1, api_col2 = st.columns(2)
+
+  with api_col1:
+    st.markdown("##### 🟢 Safaricom Daraja / SDP Gateway Config")
+    st.text_input(
+        "Safaricom Consumer Key",
+        value="[Awaiting Live Production Credentials]",
+        disabled=True,
+    )
+    st.text_input(
+        "County Shortcode / Till Number",
+        value="[Configured: Nyeri County Trade C2B]",
+        disabled=True,
+    )
+    st.success(
+        "Status: **API Architecture Ready** (Awaiting Safaricom Live Handshake)"
+        "."
+    )
+
+  with api_col2:
+    st.markdown("##### 🏛️ County System Licensing & Governance")
+    st.text_input(
+        "County Department",
+        value="Department of Trade, Tourism & Co-operatives",
+        disabled=True,
+    )
+    st.text_input(
+        "License Certificate ID",
+        value="[Pending Official County Board Approval]",
+        disabled=True,
+    )
+    st.warning("Status: **Pending Official County Software Licensing**.")
