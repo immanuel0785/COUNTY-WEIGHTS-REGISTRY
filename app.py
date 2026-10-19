@@ -14,9 +14,19 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
+# --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING (WITH SPINNING LOADER) ---
 nyeri_custom_css = """
 <style>
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    /* Make Streamlit's spinner icon spin smoothly */
+    .stSpinner > div {
+        animation: spin 1s linear infinite !important;
+    }
+
     h1, h2, h3 {
         color: #006837 !important;
         font-weight: 700 !important;
@@ -253,7 +263,8 @@ if not st.session_state["authenticated"]:
   st.stop()
 
 
-# --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER ---
+# --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER (CACHED FOR SPEED) ---
+@st.cache_data
 def process_uploaded_excel(uploaded_file_or_path, sheet_name=0):
   try:
     df_raw = pd.read_excel(
