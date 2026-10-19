@@ -1160,13 +1160,13 @@ with tab5:
 
     # Metrics summary
     expired_count = len(
-        dash_df[dash_df["ComplianceStatus"].str.contains("EXPIRED")]
+        dash_df[dash_df["Compliance Status"].str.contains("EXPIRED")]
     )
     upcoming_count = len(
-        dash_df[dash_df["ComplianceStatus"].str.contains("UPCOMING")]
+        dash_df[dash_df["Compliance Status"].str.contains("UPCOMING")]
     )
     compliant_count = len(
-        dash_df[dash_df["ComplianceStatus"].str.contains("COMPLIANT")]
+        dash_df[dash_df["Compliance Status"].str.contains("COMPLIANT")]
     )
 
     d1, d2, d3 = st.columns(3)
@@ -1189,7 +1189,7 @@ with tab5:
     final_dash_view = dash_df
     if status_filter != "All Records":
       final_dash_view = dash_df[
-          dash_df["ComplianceStatus"] == status_filter
+          dash_df["Compliance Status"] == status_filter
       ]
 
     st.dataframe(final_dash_view, use_container_width=True)
