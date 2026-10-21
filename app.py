@@ -690,7 +690,7 @@ with tab1:
     st.markdown("### 👑 [Director Restricted] 1-Click Annual Trader Rollover")
     st.markdown(
         "Automatically roll over trader profiles from a previous year into a"
-        " new year sheet without re-typing."
+        " new year sheet and save them permanently to the database."
     )
 
     if available_sheets:
@@ -712,6 +712,26 @@ with tab1:
 
           new_sheet_df = pd.DataFrame()
 
+          name_col = next(
+              (
+                  c
+                  for c in src_df.columns
+                  if "name" in c.lower() or "trader" in c.lower()
+              ),
+              None,
+          )
+          phone_col = next(
+              (
+                  c
+                  for c in src_df.columns
+                  if "phone" in c.lower() or "contact" in c.lower()
+              ),
+              None,
+          )
+          station_col_s = next(
+              (c for c in src_df.columns if "station" in c.lower()), None
+          )
+
           for col in src_df.columns:
             col_lower = col.lower()
             if any(
@@ -726,11 +746,54 @@ with tab1:
             else:
               new_sheet_df[col] = 0
 
+          # Commit rolled over records permanently to SQLite database
+          conn = sqlite3.connect(DB_FILE)
+          cursor = conn.cursor()
+
+          for idx, row in src_df.iterrows():
+            t_name = (
+                str(row[name_col])
+                if name_col and pd.notnull(row[name_col])
+                else "Unknown Trader"
+            )
+            p_no = (
+                str(row[phone_col])
+                if phone_col and pd.notnull(row[phone_col])
+                else "0700000000"
+            )
+            stn = (
+                str(row[station_col_s])
+                if station_col_s and pd.notnull(row[station_col_s])
+                else "OFFICE"
+            )
+
+            cursor.execute(
+                """
+                    INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    target_year.strip(),
+                    "PENDING",
+                    "PENDING",
+                    t_name,
+                    p_no,
+                    stn,
+                    0,
+                    0,
+                    0,
+                    0.0,
+                    "",
+                    st.session_state["user_name"],
+                ),
+            )
+          conn.commit()
+          conn.close()
+
           st.session_state["sheets_dict"][target_year.strip()] = new_sheet_df
           st.success(
               f"✅ Rolled over {len(new_sheet_df):,} traders into sheet"
-              f" '{target_year.strip()}'! Field officers can now enter equipment"
-              " counts directly."
+              f" '{target_year.strip()}' and saved permanently to the database!"
           )
           st.rerun()
 
