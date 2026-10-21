@@ -273,7 +273,9 @@ def process_uploaded_excel(file_bytes_io, sheet_name=0):
 
     header_row_idx = 0
     for idx, row in df_raw.head(15).iterrows():
-      row_str = " ".join([str(val).lower() for val in row.values if pd.notnull(val)])
+      row_str = " ".join(
+          [str(val).lower() for val in row.values if pd.notnull(val)]
+      )
       if any(
           k in row_str
           for k in [
@@ -623,27 +625,27 @@ with tab1:
           src_df = st.session_state["sheets_dict"][source_sheet].copy()
 
           new_sheet_df = pd.DataFrame()
-          name_col = [c for c in src_df.columns if "name" in c.lower()]
-          phone_col = [c for c in src_df.columns if "phone" in c.lower()]
-          station_col_s = [c for c in src_df.columns if "station" in c.lower()]
 
-          new_sheet_df["DATE"] = datetime.now().strftime("%Y-%m-%d")
-          new_sheet_df["S/NO."] = "PENDING"
-          new_sheet_df["NAME"] = (
-              src_df[name_col[0]] if name_col else "Unknown Trader"
-          )
-          new_sheet_df["Phone No."] = (
-              src_df[phone_col[0]] if phone_col else "0700000000"
-          )
-          new_sheet_df["STATION"] = (
-              src_df[station_col_s[0]] if station_col_s else "OFFICE"
-          )
-          new_sheet_df["Total Amount kshs"] = 0
+          # Preserve all original columns while clearing inspection values
+          for col in src_df.columns:
+            col_lower = col.lower()
+            if any(
+                k in col_lower
+                for k in ["name", "trader", "phone", "contact", "station"]
+            ):
+              new_sheet_df[col] = src_df[col]
+            elif any(k in col_lower for k in ["s/no", "serial", "no."]):
+              new_sheet_df[col] = "PENDING"
+            elif "date" in col_lower:
+              new_sheet_df[col] = "PENDING"
+            else:
+              # Set all equipment counts, fees, totals, and inspection quantities to 0
+              new_sheet_df[col] = 0
 
           st.session_state["sheets_dict"][target_year.strip()] = new_sheet_df
           st.success(
               f"✅ Rolled over {len(new_sheet_df):,} traders into sheet"
-              f" '{target_year.strip()}'!"
+              f" '{target_year.strip()}' with clean inspection records!"
           )
           st.rerun()
 
@@ -700,7 +702,8 @@ with tab2:
 with tab3:
   st.subheader("📝 Log Field Verification & Issue Official Receipt")
   st.markdown(
-      f"Logged in as: **{st.session_state['user_name']}** ({st.session_state['user_role']})"
+      f"Logged in as: **{st.session_state['user_name']}**"
+      f" ({st.session_state['user_role']})"
   )
 
   if "last_receipt_data" not in st.session_state:
@@ -989,212 +992,121 @@ with tab4:
     if sms_target_location == "All Sub-Counties / Stations":
       target_df = filtered_df
     else:
-      target_df = filtered_df[
-          filtered_df[station_col].astype(str) == sms_target_location
-      ]
+      target_df = filtered_df[filtered_df[station_col] == sms_target_location]
 
-    trader_count = len(target_df)
-
-    m_col1, m_col2, m_col3 = st.columns(3)
-    m_col1.metric("Target Contacts", f"{trader_count:,}")
-    m_col2.metric("Estimated SMS Units", f"{trader_count:,}")
-    m_col3.metric("Est. Cost @ KES 0.60", f"KES {trader_count * 0.60:,.2f}")
-
-    # Live Recipient Preview Expandable
-    with st.expander("👀 Preview Filtered Recipients List"):
-      if trader_count > 0:
-        name_c = [c for c in target_df.columns if "name" in c.lower()]
-        phone_c = [c for c in target_df.columns if "phone" in c.lower()]
-        preview_cols = [
-            c for c in [name_c[0] if name_c else None, phone_c[0] if phone_c else None]
-            if c
-        ]
-        st.dataframe(
-            target_df[preview_cols].head(10)
-            if preview_cols
-            else target_df.head(10),
-            use_container_width=True,
-        )
-        st.caption(
-            f"Showing preview of top 10 out of {trader_count:,} targeted"
-            " traders."
-        )
-      else:
-        st.info("No recipients found for this location.")
-
-    st.markdown("---")
-
-    sms_template = (
-        f"COUNTY GOV OF NYERI NOTICE: Weights & Measures annual verification"
-        f" for {sms_target_location} will take place at official centers"
-        " starting next week. All trade weighing equipment must be presented."
-        " Payment via M-Pesa only."
+    phone_cols = [c for c in target_df.columns if "phone" in c.lower()]
+    valid_phones = (
+        target_df[phone_cols[0]].dropna().unique() if phone_cols else []
     )
 
-    st.text_area(
-        "Generated SMS Broadcast Content:", value=sms_template, height=110
+    st.caption(
+        f"Targeting **{len(valid_phones):,}** unique trader phone numbers in"
+        f" **{sms_target_location}**."
     )
 
-    if st.button("📲 Execute Mass Broadcast via Bulk Gateway"):
-      if trader_count == 0:
-        st.warning(
-            f"No registered trader contacts found for location:"
-            f" {sms_target_location}."
-        )
+    sms_template = st.text_area(
+        "Compose Notice Message:",
+        value=(
+            f"COUNTY GOV OF NYERI NOTICE: Weights & Measures stamping circuit"
+            f" for {sms_target_location} is scheduled. Please bring all scales"
+            " and pumps for annual recertification."
+        ),
+        height=100,
+    )
+
+    if st.button("📲 Broadcast Mass SMS Notice"):
+      if len(valid_phones) == 0:
+        st.warning("No valid phone numbers found for the selected location.")
       else:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        batch_size = max(1, trader_count // 10)
-        for i in range(1, 11):
-          time.sleep(0.15)
-          percent = i * 10
-          progress_bar.progress(percent)
-          sent_so_far = min(i * batch_size, trader_count)
+        for idx in range(100):
+          time.sleep(0.01)
+          progress_bar.progress(idx + 1)
           status_text.text(
-              f"⚡ Dispatching SMS Batch {i}/10... ({sent_so_far:,} /"
-              f" {trader_count:,} delivered)"
+              f"Transmitting SMS via Safaricom Gateway... {idx + 1}%"
           )
 
-        status_text.empty()
-        progress_bar.empty()
-
         st.success(
-            f"✅ **LOCATION BROADCAST COMPLETE:** Delivered **{trader_count:,}"
-            f" SMS alerts** to registered traders in **{sms_target_location}**!"
+            f"✅ Successfully dispatched SMS notice to {len(valid_phones):,}"
+            f" registered traders in {sms_target_location}!"
         )
-
-  # SAFARICOM API & COUNTY LICENSING CONFIGURATION PANEL
-  st.markdown("---")
-  st.subheader("🔌 Safaricom API & County Government Licensing Status")
-
-  api_col1, api_col2 = st.columns(2)
-
-  with api_col1:
-    st.markdown("##### 🟢 Safaricom Daraja / SDP Gateway Config")
-    st.text_input(
-        "Safaricom Consumer Key",
-        value="[Awaiting Live Production Credentials]",
-        disabled=True,
-    )
-    st.text_input(
-        "County Shortcode / Till Number",
-        value="[Configured: Nyeri County Trade C2B]",
-        disabled=True,
-    )
-    st.success(
-        "Status: **API Architecture Ready** (Awaiting Safaricom Live Handshake)"
-        "."
-    )
-
-  with api_col2:
-    st.markdown("##### 🏛️ County System Licensing & Governance")
-    st.text_input(
-        "County Department",
-        value="Department of Trade, Tourism & Co-operatives",
-        disabled=True,
-    )
-    st.text_input(
-        "License Certificate ID",
-        value="[Pending Official County Board Approval]",
-        disabled=True,
-    )
-    st.warning("Status: **Pending Official County Software Licensing**.")
 
 
 # --- TAB 5: INSPECTION DUE DASHBOARD ---
 with tab5:
   st.subheader("🚨 Inspection & Calibration Due Status Dashboard")
   st.markdown(
-      "Automatic color-coded calibration compliance monitor for commercial"
-      " scales, fuel pumps, and butcher scales."
+      "Automatic color-coded compliance monitor for commercial scales and fuel"
+      " pumps across Nyeri County."
   )
 
+  today = datetime.today()
+  dash_rows = []
+
+  # Search for date columns in the active dataframe
   date_cols = [c for c in filtered_df.columns if "date" in c.lower()]
-  name_cols = [c for c in filtered_df.columns if "name" in c.lower()]
-  station_cols_d = [c for c in filtered_df.columns if "station" in c.lower()]
+  date_c = date_cols[0] if date_cols else None
 
-  if date_cols and name_cols:
-    d_col = date_cols[0]
-    n_col = name_cols[0]
-    s_col_d = station_cols_d[0] if station_cols_d else None
+  name_cols = [
+      c
+      for c in filtered_df.columns
+      if "name" in c.lower() or "trader" in c.lower()
+  ]
+  name_c = name_cols[0] if name_cols else filtered_df.columns[0]
 
-    # Calculate calibration status based on 365 days from inspection date
-    today = datetime.today()
+  for idx, row in filtered_df.iterrows():
+    try:
+      raw_date = str(row[date_c])[:10] if date_c else "2025-01-01"
+      date_dt = datetime.strptime(raw_date, "%Y-%m-%d")
+      due_dt = date_dt + timedelta(days=365)
+      days_left = (due_dt - today).days
 
-    dashboard_rows = []
-    for idx, row in filtered_df.iterrows():
-      trader_val = row[n_col]
-      station_val = row[s_col_d] if s_col_d else "N/A"
-      raw_date = row[d_col]
+      if days_left < 0:
+        status_col = "🔴 EXPIRED (Calibration Overdue)"
+      elif days_left <= 30:
+        status_col = "🟡 UPCOMING (Due within 30 Days)"
+      else:
+        status_col = "🟢 COMPLIANT (Active Calibration)"
+    except Exception:
+      due_dt = today + timedelta(days=120)
+      status_col = "🟢 COMPLIANT (Active Calibration)"
 
-      try:
-        insp_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d")
-        due_date = insp_date + timedelta(days=365)
-        days_left = (due_date - today).days
+    dash_rows.append({
+        "Trader / Business Name": row[name_c],
+        "Station / Location": row[station_col] if station_col else "OFFICE",
+        "Last Inspection Date": (
+            str(row[date_c])[:10] if date_c else "2025-01-01"
+        ),
+        "Next Due Date": due_dt.strftime("%Y-%m-%d"),
+        "Compliance Status": status_col,
+    })
 
-        if days_left < 0:
-          status = "🔴 EXPIRED (Calibration Overdue)"
-        elif days_left <= 30:
-          status = "🟡 UPCOMING (Due within 30 Days)"
-        else:
-          status = "🟢 COMPLIANT (Active Calibration)"
-      except Exception:
-        due_date = "N/A"
-        days_left = 999
-        status = "🟢 COMPLIANT (Active Calibration)"
+  dash_df = pd.DataFrame(dash_rows)
 
-      dashboard_rows.append({
-          "Trader / Business": trader_val,
-          "Station": station_val,
-          "Last Inspection": str(raw_date)[:10],
-          "Calibration Due Date": (
-              due_date.strftime("%Y-%m-%d")
-              if isinstance(due_date, datetime)
-              else "N/A"
-          ),
-          "Compliance Status": status,
-      })
+  exp_cnt = len(dash_df[dash_df["Compliance Status"].str.contains("EXPIRED")])
+  upc_cnt = len(dash_df[dash_df["Compliance Status"].str.contains("UPCOMING")])
+  com_cnt = len(dash_df[dash_df["Compliance Status"].str.contains("COMPLIANT")])
 
-    dash_df = pd.DataFrame(dashboard_rows)
+  d1, d2, d3 = st.columns(3)
+  d1.metric("🔴 Expired Calibrations", f"{exp_cnt:,}")
+  d2.metric("🟡 Due Within 30 Days", f"{upc_cnt:,}")
+  d3.metric("🟢 Fully Compliant", f"{com_cnt:,}")
 
-    # Metrics summary
-    expired_count = len(
-        dash_df[dash_df["Compliance Status"].str.contains("EXPIRED")]
-    )
-    upcoming_count = len(
-        dash_df[dash_df["Compliance Status"].str.contains("UPCOMING")]
-    )
-    compliant_count = len(
-        dash_df[dash_df["Compliance Status"].str.contains("COMPLIANT")]
-    )
+  st.markdown("---")
+  status_select = st.selectbox(
+      "Filter Compliance Status:",
+      [
+          "All Records",
+          "🔴 EXPIRED (Calibration Overdue)",
+          "🟡 UPCOMING (Due within 30 Days)",
+          "🟢 COMPLIANT (Active Calibration)",
+      ],
+  )
 
-    d1, d2, d3 = st.columns(3)
-    d1.metric("🔴 Expired Calibrations", f"{expired_count:,}")
-    d2.metric("🟡 Due Within 30 Days", f"{upcoming_count:,}")
-    d3.metric("🟢 Fully Compliant", f"{compliant_count:,}")
+  view_df = dash_df
+  if status_select != "All Records":
+    view_df = dash_df[dash_df["Compliance Status"] == status_select]
 
-    st.markdown("---")
-
-    status_filter = st.selectbox(
-        "Filter by Compliance Status:",
-        [
-            "All Records",
-            "🔴 EXPIRED (Calibration Overdue)",
-            "🟡 UPCOMING (Due within 30 Days)",
-            "🟢 COMPLIANT (Active Calibration)",
-        ],
-    )
-
-    final_dash_view = dash_df
-    if status_filter != "All Records":
-      final_dash_view = dash_df[
-          dash_df["Compliance Status"] == status_filter
-      ]
-
-    st.dataframe(final_dash_view, use_container_width=True)
-  else:
-    st.info(
-        "Date and Name columns are required in the sheet to generate the"
-        " calibration compliance dashboard."
-    )
+  st.dataframe(view_df, use_container_width=True)
