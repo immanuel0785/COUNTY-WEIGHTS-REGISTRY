@@ -526,39 +526,125 @@ m3.metric(
 
 st.markdown("---")
 
-# --- 7. NAVIGATION TABS (INCLUDING INSPECTION DUE DASHBOARD) ---
+# --- 7. NAVIGATION TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📂 Digital Ledger Archive & Loaded Sheets",
+    "📂 Digital Ledger Archive & Editable Sheets",
     "📈 Multi-Year Revenue & Station Analytics",
     "📝 Field Entry & Auto-Receipt Generator",
     "📅 Circuit Schedules & Mass SMS Engine",
     "🚨 Inspection Due Dashboard",
 ])
 
-# --- TAB 1: ARCHIVE, LOADED SHEET INSPECTOR & ROLLOVER ---
+# --- TAB 1: ARCHIVE, INTERACTIVE EDITABLE LEDGER & ROLLOVER ---
 with tab1:
-  st.subheader("Master Verification Registry & Loaded Workbook Sheets")
+  st.subheader("Master Verification Registry & Interactive Ledger")
   st.markdown(
-      "Inspect multi-year historical records and view raw sheets currently"
-      " loaded into memory from Git."
+      "Inspect historical records, edit inspection details live, or roll over"
+      " annual trader profiles."
   )
 
-  # VISUALIZE LOADED SHEET SECTION
+  # VISUALIZE & EDIT LOADED SHEET SECTION
   with st.expander(
-      "👁️ View Raw Loaded Workbook Sheets (`nyeri_ledger.xlsx`)", expanded=True
+      "👁️ View & Edit Raw Loaded Workbook Sheets (`nyeri_ledger.xlsx`)",
+      expanded=True,
   ):
     if st.session_state["sheets_dict"]:
       sheet_to_inspect = st.selectbox(
-          "Select Sheet to Inspect:", list(st.session_state["sheets_dict"].keys())
+          "Select Sheet to Edit / Inspect:",
+          list(st.session_state["sheets_dict"].keys()),
       )
       st.write(
-          f"Showing raw parsed data for sheet: **{sheet_to_inspect}** (Rows:"
+          f"Showing active sheet: **{sheet_to_inspect}** (Rows:"
           f" {len(st.session_state['sheets_dict'][sheet_to_inspect]):,})"
       )
-      st.dataframe(
-          st.session_state["sheets_dict"][sheet_to_inspect],
-          use_container_width=True,
+
+      # INTERACTIVE DATA EDITOR
+      st.info(
+          "✏️ **Field Officer Interactive Mode:** Double-click any cell below to"
+          " update trader info, dates, or equipment counts."
       )
+
+      active_sheet_df = st.session_state["sheets_dict"][sheet_to_inspect].copy()
+
+      edited_df = st.data_editor(
+          active_sheet_df,
+          use_container_width=True,
+          num_rows="dynamic",
+          key=f"editor_{sheet_to_inspect}",
+      )
+
+      col_save1, col_save2 = st.columns([1, 2])
+
+      with col_save1:
+        if st.button("🔄 Auto-Recalculate Fees & Save Sheet"):
+          recalculated_df = edited_df.copy()
+
+          pumps_cols = [
+              c
+              for c in recalculated_df.columns
+              if any(k in c.lower() for k in ["pump", "nozzle"])
+          ]
+          dig_scale_cols = [
+              c
+              for c in recalculated_df.columns
+              if any(
+                  k in c.lower()
+                  for k in ["digital scale", "platform", "scale(9)"]
+              )
+          ]
+          mech_scale_cols = [
+              c
+              for c in recalculated_df.columns
+              if any(
+                  k in c.lower()
+                  for k in ["counter", "mechanical", "spring"]
+              )
+          ]
+          weights_cols = [
+              c
+              for c in recalculated_df.columns
+              if any(k in c.lower() for k in ["weight", "mass"])
+          ]
+          total_fee_cols = [
+              c
+              for c in recalculated_df.columns
+              if any(k in c.lower() for k in ["total", "amount", "kshs"])
+          ]
+
+          for idx, row in recalculated_df.iterrows():
+            total_fee = 0
+
+            for c in pumps_cols:
+              total_fee += (
+                  pd.to_numeric(row[c], errors="coerce") or 0
+              ) * 2400
+            for c in dig_scale_cols:
+              total_fee += (
+                  pd.to_numeric(row[c], errors="coerce") or 0
+              ) * 2000
+            for c in mech_scale_cols:
+              total_fee += (
+                  pd.to_numeric(row[c], errors="coerce") or 0
+              ) * 1500
+            for c in weights_cols:
+              total_fee += (pd.to_numeric(row[c], errors="coerce") or 0) * 500
+
+            if total_fee_cols:
+              recalculated_df.at[idx, total_fee_cols[0]] = total_fee
+
+          st.session_state["sheets_dict"][sheet_to_inspect] = recalculated_df
+          st.success(
+              f"✅ Sheet '{sheet_to_inspect}' successfully recalculated and"
+              " saved to memory!"
+          )
+          st.rerun()
+
+      with col_save2:
+        st.caption(
+            "💡 **Standard Fee Table:** Pumps @ KES 2,400 | Digital Scales @"
+            " KES 2,000 | Counter Scales @ KES 1,500 | Mass Weights @ KES 500."
+        )
+
     else:
       st.warning("No Excel sheets currently loaded in memory.")
 
@@ -626,7 +712,6 @@ with tab1:
 
           new_sheet_df = pd.DataFrame()
 
-          # Preserve all original columns while clearing inspection values
           for col in src_df.columns:
             col_lower = col.lower()
             if any(
@@ -639,13 +724,13 @@ with tab1:
             elif "date" in col_lower:
               new_sheet_df[col] = "PENDING"
             else:
-              # Set all equipment counts, fees, totals, and inspection quantities to 0
               new_sheet_df[col] = 0
 
           st.session_state["sheets_dict"][target_year.strip()] = new_sheet_df
           st.success(
               f"✅ Rolled over {len(new_sheet_df):,} traders into sheet"
-              f" '{target_year.strip()}' with clean inspection records!"
+              f" '{target_year.strip()}'! Field officers can now enter equipment"
+              " counts directly."
           )
           st.rerun()
 
@@ -897,7 +982,6 @@ with tab3:
         """
     st.markdown(receipt_html, unsafe_allow_html=True)
 
-    # PDF CERTIFICATE DOWNLOAD BUTTON
     pdf_bytes = generate_pdf_certificate(r)
     st.download_button(
         label="📥 Download Official Verification Certificate (.pdf)",
@@ -917,7 +1001,6 @@ with tab4:
       " circuits, and configure production Safaricom API & Licensing handshakes."
   )
 
-  # PITCH PRESENTATION ROADMAP BANNER
   st.info(
       "🚀 **PITCH PRODUCTION ROADMAP:**\n"
       "The system core, database, and UI are 100% complete and fully"
@@ -936,7 +1019,6 @@ with tab4:
     st.markdown("### 📌 Published County Stamping Circuits")
     st.dataframe(st.session_state["schedules"], use_container_width=True)
 
-    # Admin circuit scheduler
     if is_admin_or_director:
       with st.expander("➕ Add New Stamping Circuit"):
         with st.form("new_circuit_form"):
@@ -1045,7 +1127,6 @@ with tab5:
   today = datetime.today()
   dash_rows = []
 
-  # Search for date columns in the active dataframe
   date_cols = [c for c in filtered_df.columns if "date" in c.lower()]
   date_c = date_cols[0] if date_cols else None
 
