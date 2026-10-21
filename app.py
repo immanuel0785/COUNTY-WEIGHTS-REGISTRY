@@ -632,10 +632,57 @@ with tab1:
             if total_fee_cols:
               recalculated_df.at[idx, total_fee_cols[0]] = total_fee
 
+          # --- PERMANENT DATABASE SYNC FOR EDITS ---
+          conn = sqlite3.connect(DB_FILE)
+          cursor = conn.cursor()
+          cursor.execute(
+              "DELETE FROM ledger_entries WHERE year_sheet = ?",
+              (sheet_to_inspect,),
+          )
+
+          for idx, row in recalculated_df.iterrows():
+            t_name = str(row.get("NAME", row.get("Trader_Name", "Unknown")))
+            p_no = str(row.get("Phone No.", row.get("Phone", "0700000000")))
+            stn = str(row.get("STATION", row.get("Sub_County", "OFFICE")))
+            s_no_val = str(row.get("S/NO.", row.get("Serial_No", "PENDING")))
+            date_val = str(row.get("DATE", row.get("Date", "PENDING")))
+            tot_amt = (
+                float(row.get(total_fee_cols[0], 0)) if total_fee_cols else 0.0
+            )
+
+            cursor.execute(
+                """
+                    INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sheet_to_inspect,
+                    date_val,
+                    s_no_val,
+                    t_name,
+                    p_no,
+                    stn,
+                    int(row.get("stamped_pumps", 0))
+                    if "stamped_pumps" in row
+                    else 0,
+                    int(row.get("stamped_scales", 0))
+                    if "stamped_scales" in row
+                    else 0,
+                    int(row.get("stamped_weights", 0))
+                    if "stamped_weights" in row
+                    else 0,
+                    tot_amt,
+                    "",
+                    st.session_state["user_name"],
+                ),
+            )
+          conn.commit()
+          conn.close()
+
           st.session_state["sheets_dict"][sheet_to_inspect] = recalculated_df
           st.success(
-              f"✅ Sheet '{sheet_to_inspect}' successfully recalculated and"
-              " saved to memory!"
+              f"✅ Sheet '{sheet_to_inspect}' successfully recalculated,"
+              " saved to memory, and synced permanently to the database!"
           )
           st.rerun()
 
