@@ -1143,7 +1143,7 @@ else:
     st.subheader("📊 Daily Field Hand-In Report for Director")
     st.markdown(
         "Generate a summary of all inspections, equipment counts, and revenue"
-        " collected by you for hand-in submission."
+        " collected grouped by inspection center (station) for hand-in submission."
     )
 
     report_date = st.date_input(
@@ -1153,16 +1153,13 @@ else:
 
     db_records = load_all_db_records()
     if not db_records.empty:
-      # Filter records logged by current inspector for selected date
       inspector_name = st.session_state["user_name"]
       daily_mask = (db_records["inspector_logged"] == inspector_name) & (
           db_records["date_entry"] == report_date_str
       )
       daily_df = db_records[daily_mask]
 
-      st.markdown(
-          f"### 📋 Hand-In Report Summary: `{report_date_str}`"
-      )
+      st.markdown(f"### 📋 Hand-In Report Summary: `{report_date_str}`")
       st.markdown(f"**Officer:** {inspector_name}")
 
       d_m1, d_m2, d_m3 = st.columns(3)
@@ -1197,8 +1194,35 @@ else:
       )
 
       st.markdown("---")
-      st.markdown("**Detailed Transaction Log for Hand-In:**")
+      st.markdown("### 🏢 Station-Wise Hand-In Summary Table")
+
       if not daily_df.empty:
+        # Group by station / inspection center
+        station_summary = (
+            daily_df.groupby("station")
+            .agg(
+                Traders_Count=("trader_name", "count"),
+                Total_Fee=("total_amount", "sum"),
+                Stamped_Pumps=("stamped_pumps", "sum"),
+                Stamped_Scales=("stamped_scales", "sum"),
+                Stamped_Weights=("stamped_weights", "sum"),
+            )
+            .reset_index()
+        )
+
+        station_summary.columns = [
+            "Inspection Center / Station",
+            "No. of Traders",
+            "Total Fee Collected (KES)",
+            "Stamped Pumps",
+            "Stamped Scales",
+            "Stamped Weights",
+        ]
+
+        st.dataframe(station_summary, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("**Detailed Transaction Log for Hand-In:**")
         st.dataframe(
             daily_df[[
                 "serial_no",
@@ -1211,17 +1235,6 @@ else:
                 "mpesa_code",
             ]],
             use_container_width=True,
-        )
-
-        # CSV Export for Director
-        csv_report = daily_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 Download Daily Hand-In Report (.csv)",
-            data=csv_report,
-            file_name=(
-                f"HandIn_Report_{inspector_name.replace(' ', '_')}_{report_date_str}.csv"
-            ),
-            mime="text/csv",
         )
       else:
         st.info(
