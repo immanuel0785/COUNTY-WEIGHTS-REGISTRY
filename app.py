@@ -354,7 +354,7 @@ def load_workbook_from_git(file_path):
 
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
-  default_workbook_path = "nyeri_ledger.xlsx"
+  default_workbook_path = "Nyeri_Trader_Inspection_Synthetic.xlsx"
   try:
     with st.spinner(
         "⏳ Loading County Historical Ledgers from Git... Please wait."
@@ -369,8 +369,8 @@ if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
       "Sub_County": [
           "OTHAYA TOWN",
-          "OFFICE / NYERI TOWN",
-          "KIAMARIGA / MUNYU",
+          "NYERI TOWN",
+          "MUKWEREINI",
       ],
       "Verification_Center": [
           "Othaya Social Hall",
@@ -402,7 +402,7 @@ st.sidebar.markdown("---")
 
 st.sidebar.info(
     "📂 **Master Registry Source:**\nAuto-loaded securely from County Git"
-    f" Repository (`nyeri_ledger.xlsx`). Sheets loaded:"
+    f" Repository (`Nyeri_Trader_Inspection_Synthetic.xlsx`). Sheets loaded:"
     f" **{len(st.session_state['sheets_dict'])}**"
 )
 
