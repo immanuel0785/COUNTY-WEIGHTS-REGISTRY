@@ -356,7 +356,7 @@ def load_workbook_from_git(file_path):
 
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
-  # USING THE SYNTHETIC DATASET FILENAME
+  # USING SYNTHETIC DATASET FILENAME
   default_workbook_path = "Nyeri_Trader_Inspection_Synthetic.xlsx"
   try:
     with st.spinner(
@@ -1083,11 +1083,84 @@ with tab4:
   st.markdown("---")
   st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
 
+  # Station selection
   schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
+  if station_col and station_col in df_active.columns:
+    registry_stations = list(df_active[station_col].dropna().unique())
+    all_stations = sorted(list(set(schedule_stations + registry_stations)))
+  else:
+    all_stations = schedule_stations
+
   sms_station = st.selectbox(
-      "Select Target Station for SMS Notice:",
-      ["All Stations"] + schedule_stations,
+      "Select Target Station / Sub-County for SMS Notice:",
+      ["All Stations"] + all_stations,
   )
+
+  # Filter target recipients based on selected station
+  if (
+      sms_station != "All Stations"
+      and station_col
+      and station_col in df_active.columns
+  ):
+    recipient_df = df_active[
+        df_active[station_col]
+        .astype(str)
+        .str.contains(sms_station, case=False, na=False)
+    ].copy()
+  else:
+    recipient_df = df_active.copy()
+
+  trader_col = next(
+      (
+          c
+          for c in recipient_df.columns
+          if "name" in c.lower() or "trader" in c.lower()
+      ),
+      None,
+  )
+  phone_col = next(
+      (
+          c
+          for c in recipient_df.columns
+          if "phone" in c.lower() or "contact" in c.lower()
+      ),
+      None,
+  )
+
+  # Display Recipient Preview Box & Metrics
+  st.markdown(f"#### 👥 Target Recipient List Preview (`{sms_station}`)")
+
+  col_m1, col_m2 = st.columns(2)
+  total_recipients = len(recipient_df)
+
+  if phone_col:
+    valid_contacts = (
+        recipient_df[phone_col]
+        .astype(str)
+        .str.strip()
+        .replace("", np.nan)
+        .dropna()
+        .nunique()
+    )
+  else:
+    valid_contacts = total_recipients
+
+  col_m1.metric("Traders Selected", f"{total_recipients:,}")
+  col_m2.metric("Valid Mobile Contacts", f"{valid_contacts:,}")
+
+  preview_cols = [
+      c for c in [trader_col, phone_col, station_col] if c and c in recipient_df.columns
+  ]
+  if preview_cols:
+    st.dataframe(
+        recipient_df[preview_cols].reset_index(drop=True),
+        use_container_width=True,
+        height=200,
+    )
+  else:
+    st.dataframe(recipient_df.head(20), use_container_width=True, height=200)
+
+  st.markdown("---")
 
   # Dynamically generate SMS content based on selected schedule station
   default_sms = ""
@@ -1130,13 +1203,16 @@ with tab4:
   )
 
   if st.button("🚀 Broadcast SMS via Safaricom Gateway"):
-    if sms_message.strip() != "":
-      st.success(
-          f"✅ Bulk SMS notice successfully dispatched to registered traders"
-          f" across {sms_station}! (Safaricom Gateway API connected)"
-      )
-    else:
+    if total_recipients == 0:
+      st.error("⚠️ No registered traders found for the selected station.")
+    elif sms_message.strip() == "":
       st.warning("⚠️ SMS message content cannot be empty.")
+    else:
+      st.success(
+          f"✅ Bulk SMS notice successfully dispatched to {valid_contacts:,}"
+          f" registered traders across {sms_station}! (Safaricom Gateway API"
+          " connected)"
+      )
 
 
 # --- TAB 5: INSPECTION DUE DASHBOARD ---
