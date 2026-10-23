@@ -267,9 +267,9 @@ if not st.session_state["authenticated"]:
 
 # --- 3. EXCEL MULTI-SHEET PARSER & NORMALIZER (CACHED) ---
 @st.cache_data
-def process_uploaded_excel(file_bytes_io, sheet_name=0):
+def process_uploaded_excel(file_source, sheet_name=0):
   try:
-    df_raw = pd.read_excel(file_bytes_io, sheet_name=sheet_name, header=None)
+    df_raw = pd.read_excel(file_source, sheet_name=sheet_name, header=None)
     if df_raw.empty:
       return None
 
@@ -293,7 +293,7 @@ def process_uploaded_excel(file_bytes_io, sheet_name=0):
         header_row_idx = idx
         break
 
-    df = pd.read_excel(file_bytes_io, sheet_name=sheet_name, header=header_row_idx)
+    df = pd.read_excel(file_source, sheet_name=sheet_name, header=header_row_idx)
     df.columns = df.columns.astype(str).str.strip()
     df = df.dropna(how="all").reset_index(drop=True)
     df = df.loc[:, ~df.columns.str.contains("^Unnamed", na=False)]
@@ -334,13 +334,15 @@ def process_uploaded_excel(file_bytes_io, sheet_name=0):
     return None
 
 
-# --- 4. SESSION STATE & GIT WORKBOOK AUTO-LOADER (BYTES CACHED) ---
 @st.cache_data
-def load_workbook_from_git(file_path):
+def load_workbook_from_source(file_source):
   sheets = {}
   try:
-    with open(file_path, "rb") as f:
-      file_bytes = f.read()
+    if isinstance(file_source, str):
+      with open(file_source, "rb") as f:
+        file_bytes = f.read()
+    else:
+      file_bytes = file_source.getvalue()
 
     xl_workbook = pd.ExcelFile(io.BytesIO(file_bytes))
     for s_name in xl_workbook.sheet_names:
@@ -354,40 +356,83 @@ def load_workbook_from_git(file_path):
   return sheets
 
 
+# --- 4. SESSION STATE & WORKBOOK LOADER ---
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
-  # USING SYNTHETIC DATASET FILENAME
   default_workbook_path = "Nyeri_Trader_Inspection_Synthetic.xlsx"
   try:
     with st.spinner(
         "⏳ Loading County Historical Ledgers from Git... Please wait."
     ):
-      st.session_state["sheets_dict"] = load_workbook_from_git(
+      st.session_state["sheets_dict"] = load_workbook_from_source(
           default_workbook_path
       )
   except Exception as e:
     pass
 
+# Updated default schedules to include all 8 official Nyeri stations/sub-counties
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
       "Sub_County": [
-          "OTHAYA TOWN",
-          "OFFICE / NYERI TOWN",
-          "KIAMARIGA / MUNYU",
+          "OTHAYA",
+          "NYERI TOWN",
+          "MUKURWEINI",
+          "TETU",
+          "KIENI EAST",
+          "KIENI WEST",
+          "MATHIRA EAST",
+          "MATHIRA WEST",
       ],
       "Verification_Center": [
           "Othaya Social Hall",
           "Nyeri Town Sub-County Office",
-          "Kiamariga Market Hall",
+          "Mukurweini Social Hall",
+          "Tetu Sub-County Ground",
+          "Kieni East Market Hall",
+          "Kieni West Community Centre",
+          "Karatina Market Hall",
+          "Mathira West Hall",
       ],
-      "Start_Date": ["2026-11-01", "2026-11-15", "2026-12-01"],
-      "End_Date": ["2026-11-05", "2026-11-18", "2026-12-05"],
+      "Start_Date": [
+          "2026-11-01",
+          "2026-11-10",
+          "2026-11-18",
+          "2026-11-25",
+          "2026-12-01",
+          "2026-12-08",
+          "2026-12-15",
+          "2026-12-22",
+      ],
+      "End_Date": [
+          "2026-11-05",
+          "2026-11-14",
+          "2026-11-22",
+          "2026-11-29",
+          "2026-12-05",
+          "2026-12-12",
+          "2026-12-19",
+          "2026-12-26",
+      ],
       "Assigned_Inspector": [
           "Insp. Ndirangu (ID: 018)",
           "Insp. Mwangi (ID: 042)",
+          "Insp. Maina (ID: 031)",
           "Insp. Wanjiku (ID: 025)",
+          "Insp. Kiprono (ID: 050)",
+          "Insp. Kariuki (ID: 012)",
+          "Insp. Omondi (ID: 019)",
+          "Insp. Chebet (ID: 022)",
       ],
-      "Status": ["Scheduled", "Scheduled", "Upcoming"],
+      "Status": [
+          "Scheduled",
+          "Scheduled",
+          "Scheduled",
+          "Upcoming",
+          "Upcoming",
+          "Upcoming",
+          "Upcoming",
+          "Upcoming",
+      ],
   })
 
 is_admin_or_director = (
@@ -403,9 +448,19 @@ st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
+# Runtime File Uploader for Custom Synthetic Dataset
+st.sidebar.markdown("📂 **Upload Updated Workbook:**")
+uploaded_excel_file = st.sidebar.file_uploader(
+    "Upload Nyeri_Trader_Inspection_Synthetic.xlsx", type=["xlsx"]
+)
+if uploaded_excel_file is not None:
+  st.session_state["sheets_dict"] = load_workbook_from_source(
+      uploaded_excel_file
+  )
+  st.sidebar.success("✅ Custom workbook loaded successfully!")
+
 st.sidebar.info(
-    "📂 **Master Registry Source:**\nAuto-loaded securely from County Git"
-    f" Repository (`Nyeri_Trader_Inspection_Synthetic.xlsx`). Sheets loaded:"
+    "📂 **Master Registry Source:**\nActive Sheets Loaded:"
     f" **{len(st.session_state['sheets_dict'])}**"
 )
 
@@ -945,15 +1000,14 @@ with tab3:
       new_station = st.selectbox(
           "Station / Location (All Sub-Counties)",
           [
-              "OTHAYA TOWN",
-              "OFFICE",
-              "KIAMARIGA",
-              "MUNYU",
-              "JETI",
-              "IRIGITHATHI",
-              "KARATINA MARKET",
-              "MATHIRA EAST",
               "NYERI TOWN",
+              "OTHAYA",
+              "MUKURWEINI",
+              "TETU",
+              "KIENI EAST",
+              "KIENI WEST",
+              "MATHIRA EAST",
+              "MATHIRA WEST",
           ],
       )
       inspection_date_obj = st.date_input(
@@ -1083,20 +1137,24 @@ with tab4:
   st.markdown("---")
   st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
 
-  # Station selection
+  # Extract stations dynamically from all loaded sheets in sheets_dict
+  dynamic_stations = []
+  for sdf in st.session_state["sheets_dict"].values():
+    scols = [c for c in sdf.columns if "station" in c.lower()]
+    if scols:
+      dynamic_stations.extend(sdf[scols[0]].dropna().unique().tolist())
+
   schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
-  if station_col and station_col in df_active.columns:
-    registry_stations = list(df_active[station_col].dropna().unique())
-    all_stations = sorted(list(set(schedule_stations + registry_stations)))
-  else:
-    all_stations = schedule_stations
+  all_stations = sorted(
+      list(set(schedule_stations + [str(s) for s in dynamic_stations]))
+  )
 
   sms_station = st.selectbox(
       "Select Target Station / Sub-County for SMS Notice:",
       ["All Stations"] + all_stations,
   )
 
-  # Filter target recipients based on selected station
+  # Filter target recipients based on selected station across sheets
   if (
       sms_station != "All Stations"
       and station_col
@@ -1127,10 +1185,10 @@ with tab4:
       None,
   )
 
-  # Display Recipient Preview Box & Metrics
+  # Display Recipient Preview Box & Metrics with Cost Estimator
   st.markdown(f"#### 👥 Target Recipient List Preview (`{sms_station}`)")
 
-  col_m1, col_m2 = st.columns(2)
+  col_m1, col_m2, col_m3 = st.columns(3)
   total_recipients = len(recipient_df)
 
   if phone_col:
@@ -1145,11 +1203,17 @@ with tab4:
   else:
     valid_contacts = total_recipients
 
+  # Estimated bulk SMS cost (KES 0.80 per SMS)
+  est_sms_cost = valid_contacts * 0.80
+
   col_m1.metric("Traders Selected", f"{total_recipients:,}")
   col_m2.metric("Valid Mobile Contacts", f"{valid_contacts:,}")
+  col_m3.metric("Est. Broadcast Cost", f"KES {est_sms_cost:,.2f}")
 
   preview_cols = [
-      c for c in [trader_col, phone_col, station_col] if c and c in recipient_df.columns
+      c
+      for c in [trader_col, phone_col, station_col]
+      if c and c in recipient_df.columns
   ]
   if preview_cols:
     st.dataframe(
@@ -1210,8 +1274,8 @@ with tab4:
     else:
       st.success(
           f"✅ Bulk SMS notice successfully dispatched to {valid_contacts:,}"
-          f" registered traders across {sms_station}! (Safaricom Gateway API"
-          " connected)"
+          f" registered traders across {sms_station}! Estimated Cost: KES"
+          f" {est_sms_cost:,.2f} (Safaricom Gateway API connected)"
       )
 
 
