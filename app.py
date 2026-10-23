@@ -594,7 +594,7 @@ st.markdown("---")
 
 # --- 7. ROLE-SEPARATED NAVIGATION TABS ---
 if is_admin_or_director:
-  # --- DIRECTOR / ADMINISTRATOR HUB (READ-ONLY REPORTING & OVERSEER) ---
+  # --- DIRECTOR / ADMINISTRATOR HUB ---
   tab1, tab2, tab3, tab4, tab5 = st.tabs([
       "📂 Master Registry & Annual Rollover",
       "📈 Executive Revenue & Station Analytics",
@@ -926,9 +926,10 @@ if is_admin_or_director:
 
 else:
   # --- FIELD INSPECTOR PORTAL ---
-  tab1, tab2, tab3, tab4 = st.tabs([
+  tab1, tab2, tab3, tab4, tab5 = st.tabs([
       "📝 Log Field Verification & Auto-Receipt Generator",
       "📂 View Station Ledger & Records",
+      "📊 Daily Field Hand-In Report",
       "📅 Circuit Schedules & SMS Notices",
       "🚨 Inspection Due Tracker",
   ])
@@ -958,7 +959,6 @@ else:
       except Exception:
         pass
 
-    # Dynamic trader list for auto-completion
     trader_name_col = next(
         (
             c
@@ -986,7 +986,6 @@ else:
             available_sheets if available_sheets else ["2026"],
         )
 
-        # Trader auto-selection or manual entry
         select_trader = st.selectbox(
             "Select Existing Registered Trader (or type new below):",
             ["-- New Trader --"] + existing_traders,
@@ -1081,10 +1080,8 @@ else:
               "inspector": st.session_state["user_name"],
           }
 
-          # 1. Save entry to SQLite database permanently
           save_record_to_db(rec_payload)
 
-          # 2. Sync directly to the current year sheet in session state
           new_row = pd.DataFrame([{
               "DATE": inspection_date_str,
               "S/NO.": default_sno,
@@ -1143,6 +1140,98 @@ else:
     st.caption(f"Displaying {len(display_df)} records.")
 
   with tab3:
+    st.subheader("📊 Daily Field Hand-In Report for Director")
+    st.markdown(
+        "Generate a summary of all inspections, equipment counts, and revenue"
+        " collected by you for hand-in submission."
+    )
+
+    report_date = st.date_input(
+        "Select Report Date:", value=datetime.today() - timedelta(days=1)
+    )
+    report_date_str = report_date.strftime("%Y-%m-%d")
+
+    db_records = load_all_db_records()
+    if not db_records.empty:
+      # Filter records logged by current inspector for selected date
+      inspector_name = st.session_state["user_name"]
+      daily_mask = (db_records["inspector_logged"] == inspector_name) & (
+          db_records["date_entry"] == report_date_str
+      )
+      daily_df = db_records[daily_mask]
+
+      st.markdown(
+          f"### 📋 Hand-In Report Summary: `{report_date_str}`"
+      )
+      st.markdown(f"**Officer:** {inspector_name}")
+
+      d_m1, d_m2, d_m3 = st.columns(3)
+      total_inspections_day = len(daily_df)
+      total_revenue_day = (
+          daily_df["total_amount"].sum()
+          if not daily_df.empty and "total_amount" in daily_df.columns
+          else 0
+      )
+      total_pumps_day = (
+          daily_df["stamped_pumps"].sum()
+          if not daily_df.empty and "stamped_pumps" in daily_df.columns
+          else 0
+      )
+      total_scales_day = (
+          daily_df["stamped_scales"].sum()
+          if not daily_df.empty and "stamped_scales" in daily_df.columns
+          else 0
+      )
+      total_weights_day = (
+          daily_df["stamped_weights"].sum()
+          if not daily_df.empty and "stamped_weights" in daily_df.columns
+          else 0
+      )
+
+      d_m1.metric("Total Inspections Logged", f"{total_inspections_day:,}")
+      d_m2.metric("Total Revenue Collected", f"KES {total_revenue_day:,.2f}")
+      d_m3.metric(
+          "Equipment Stamped",
+          f"Pumps: {total_pumps_day} | Scales: {total_scales_day} | Wts:"
+          f" {total_weights_day}",
+      )
+
+      st.markdown("---")
+      st.markdown("**Detailed Transaction Log for Hand-In:**")
+      if not daily_df.empty:
+        st.dataframe(
+            daily_df[[
+                "serial_no",
+                "trader_name",
+                "station",
+                "stamped_pumps",
+                "stamped_scales",
+                "stamped_weights",
+                "total_amount",
+                "mpesa_code",
+            ]],
+            use_container_width=True,
+        )
+
+        # CSV Export for Director
+        csv_report = daily_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Daily Hand-In Report (.csv)",
+            data=csv_report,
+            file_name=(
+                f"HandIn_Report_{inspector_name.replace(' ', '_')}_{report_date_str}.csv"
+            ),
+            mime="text/csv",
+        )
+      else:
+        st.info(
+            f"No field inspection records found for {inspector_name} on"
+            f" {report_date_str}. Try selecting another date!"
+        )
+    else:
+      st.info("No field inspection records logged in the database yet.")
+
+  with tab4:
     st.subheader("📅 Circuit Schedules & SMS Notice Previews")
     st.dataframe(st.session_state["schedules"], use_container_width=True)
     st.markdown("---")
@@ -1275,7 +1364,7 @@ else:
             f" {est_sms_cost:,.2f}"
         )
 
-  with tab4:
+  with tab5:
     st.subheader("🚨 Inspection Due & Renewal Dashboard")
     st.markdown(
         "Track devices and traders whose 12-month statutory stamping"
