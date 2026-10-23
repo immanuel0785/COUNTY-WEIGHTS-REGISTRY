@@ -22,7 +22,6 @@ nyeri_custom_css = """
         100% { transform: rotate(360deg); }
     }
     
-    /* Make Streamlit's spinner icon spin smoothly */
     .stSpinner > div {
         animation: spin 1s linear infinite !important;
     }
@@ -370,7 +369,6 @@ if "sheets_dict" not in st.session_state:
   except Exception as e:
     pass
 
-# Updated default schedules to include all 8 official Nyeri stations/sub-counties
 if "schedules" not in st.session_state:
   st.session_state["schedules"] = pd.DataFrame({
       "Sub_County": [
@@ -444,20 +442,22 @@ is_admin_or_director = (
 # --- 5. SIDEBAR CONTROL PANEL ---
 st.sidebar.header("🔍 Registry Controls")
 st.sidebar.markdown(f"👤 **User:** {st.session_state['user_name']}")
-st.sidebar.markdown(f"🛡️ **Role:** {st.session_state['user_role']}")
+st.sidebar.markdown(
+    f"🛡️ **Portal:** {'👑 Executive Director Hub' if is_admin_or_director else '🛠️ Field Operations Portal'}"
+)
 st.sidebar.markdown(f"📍 **Station:** {st.session_state['user_subcounty']}")
 st.sidebar.markdown("---")
 
-# Runtime File Uploader for Custom Synthetic Dataset
-st.sidebar.markdown("📂 **Upload Updated Workbook:**")
-uploaded_excel_file = st.sidebar.file_uploader(
-    "Upload Nyeri_Trader_Inspection_Synthetic.xlsx", type=["xlsx"]
-)
-if uploaded_excel_file is not None:
-  st.session_state["sheets_dict"] = load_workbook_from_source(
-      uploaded_excel_file
+if is_admin_or_director:
+  st.sidebar.markdown("📂 **Upload Updated Workbook:**")
+  uploaded_excel_file = st.sidebar.file_uploader(
+      "Upload Nyeri_Trader_Inspection_Synthetic.xlsx", type=["xlsx"]
   )
-  st.sidebar.success("✅ Custom workbook loaded successfully!")
+  if uploaded_excel_file is not None:
+    st.session_state["sheets_dict"] = load_workbook_from_source(
+        uploaded_excel_file
+    )
+    st.sidebar.success("✅ Custom workbook loaded successfully!")
 
 st.sidebar.info(
     "📂 **Master Registry Source:**\nActive Sheets Loaded:"
@@ -555,11 +555,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("⚖️ Digital Verification & Audit Hub")
-st.markdown(
-    "*Digitizing Nyeri County's physical inspection ledgers into an automated,"
-    " fraud-proof database.*"
-)
+if is_admin_or_director:
+  st.title("👑 Executive Director Audit & Oversight Hub")
+  st.markdown(
+      "*Master registry controls, multi-year revenue analytics, and inspector"
+      " performance tracking.*"
+  )
+else:
+  st.title("🛠️ Field Inspector Operations Portal")
+  st.markdown(
+      f"*Active field verification and receipting for **{st.session_state['user_subcounty']}**.*"
+  )
+
 st.markdown("---")
 
 rev_cols = [
@@ -584,229 +591,206 @@ m3.metric(
 
 st.markdown("---")
 
-# --- 7. NAVIGATION TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📂 Digital Ledger Archive & Editable Sheets",
-    "📈 Multi-Year Revenue & Station Analytics",
-    "📝 Field Entry & Auto-Receipt Generator",
-    "📅 Circuit Schedules & Mass SMS Engine",
-    "🚨 Inspection Due Dashboard",
-])
 
-# --- TAB 1: ARCHIVE, INTERACTIVE EDITABLE LEDGER & ROLLOVER ---
-with tab1:
-  st.subheader("Master Verification Registry & Interactive Ledger")
-  st.markdown(
-      "Inspect historical records, edit inspection details live, or roll over"
-      " annual trader profiles."
-  )
+# --- 7. ROLE-SEPARATED NAVIGATION TABS ---
+if is_admin_or_director:
+  # --- DIRECTOR / ADMINISTRATOR TABS ---
+  tab1, tab2, tab3, tab4, tab5 = st.tabs([
+      "📂 Master Registry & Annual Rollover",
+      "📈 Executive Revenue & Station Analytics",
+      "👑 Inspector Activity Audit Log",
+      "📅 Circuit Schedules & Mass SMS Engine",
+      "🚨 County Inspection Due Dashboard",
+  ])
 
-  # VISUALIZE & EDIT LOADED SHEET SECTION
-  with st.expander(
-      "👁️ View & Edit Raw Loaded Workbook Sheets"
-      " (`Nyeri_Trader_Inspection_Synthetic.xlsx`)",
-      expanded=True,
-  ):
-    if st.session_state["sheets_dict"]:
-      sheet_to_inspect = st.selectbox(
-          "Select Sheet to Edit / Inspect:",
-          list(st.session_state["sheets_dict"].keys()),
-      )
-      st.write(
-          f"Showing active sheet: **{sheet_to_inspect}** (Rows:"
-          f" {len(st.session_state['sheets_dict'][sheet_to_inspect]):,})"
-      )
+  with tab1:
+    st.subheader("Master Verification Registry & Interactive Ledger")
+    st.markdown(
+        "Inspect historical records, edit inspection details live, or roll"
+        " over annual trader profiles."
+    )
 
-      # INTERACTIVE DATA EDITOR
-      st.info(
-          "✏️ **Field Officer Interactive Mode:** Double-click any cell below to"
-          " update trader info, dates, or equipment counts."
-      )
-
-      active_sheet_df = st.session_state["sheets_dict"][sheet_to_inspect].copy()
-
-      edited_df = st.data_editor(
-          active_sheet_df,
-          use_container_width=True,
-          num_rows="dynamic",
-          key=f"editor_{sheet_to_inspect}",
-      )
-
-      col_save1, col_save2 = st.columns([1, 2])
-
-      with col_save1:
-        if st.button("🔄 Auto-Recalculate Fees & Save Sheet"):
-          recalculated_df = edited_df.copy()
-
-          pumps_cols = [
-              c
-              for c in recalculated_df.columns
-              if any(k in c.lower() for k in ["pump", "nozzle"])
-          ]
-          dig_scale_cols = [
-              c
-              for c in recalculated_df.columns
-              if any(
-                  k in c.lower()
-                  for k in ["digital scale", "platform", "scale(9)"]
-              )
-          ]
-          mech_scale_cols = [
-              c
-              for c in recalculated_df.columns
-              if any(
-                  k in c.lower()
-                  for k in ["counter", "mechanical", "spring"]
-              )
-          ]
-          weights_cols = [
-              c
-              for c in recalculated_df.columns
-              if any(k in c.lower() for k in ["weight", "mass"])
-          ]
-          total_fee_cols = [
-              c
-              for c in recalculated_df.columns
-              if any(k in c.lower() for k in ["total", "amount", "kshs"])
-          ]
-
-          for idx, row in recalculated_df.iterrows():
-            total_fee = 0
-
-            for c in pumps_cols:
-              total_fee += (
-                  pd.to_numeric(row[c], errors="coerce") or 0
-              ) * 2400
-            for c in dig_scale_cols:
-              total_fee += (
-                  pd.to_numeric(row[c], errors="coerce") or 0
-              ) * 2000
-            for c in mech_scale_cols:
-              total_fee += (
-                  pd.to_numeric(row[c], errors="coerce") or 0
-              ) * 1500
-            for c in weights_cols:
-              total_fee += (pd.to_numeric(row[c], errors="coerce") or 0) * 500
-
-            if total_fee_cols:
-              recalculated_df.at[idx, total_fee_cols[0]] = total_fee
-
-          # --- PERMANENT DATABASE SYNC FOR EDITS (THREAD-SAFE) ---
-          with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM ledger_entries WHERE year_sheet = ?",
-                (sheet_to_inspect,),
-            )
-
-            for idx, row in recalculated_df.iterrows():
-              t_name = str(row.get("NAME", row.get("Trader_Name", "Unknown")))
-              p_no = str(row.get("Phone No.", row.get("Phone", "0700000000")))
-              stn = str(row.get("STATION", row.get("Sub_County", "OFFICE")))
-              s_no_val = str(row.get("S/NO.", row.get("Serial_No", "PENDING")))
-              date_val = str(row.get("DATE", row.get("Date", "PENDING")))
-              tot_amt = (
-                  float(row.get(total_fee_cols[0], 0))
-                  if total_fee_cols
-                  else 0.0
-              )
-
-              cursor.execute(
-                  """
-                        INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                  (
-                      sheet_to_inspect,
-                      date_val,
-                      s_no_val,
-                      t_name,
-                      p_no,
-                      stn,
-                      int(row.get("stamped_pumps", 0))
-                      if "stamped_pumps" in row
-                      else 0,
-                      int(row.get("stamped_scales", 0))
-                      if "stamped_scales" in row
-                      else 0,
-                      int(row.get("stamped_weights", 0))
-                      if "stamped_weights" in row
-                      else 0,
-                      tot_amt,
-                      "",
-                      st.session_state["user_name"],
-                  ),
-              )
-            conn.commit()
-
-          st.session_state["sheets_dict"][sheet_to_inspect] = recalculated_df
-          st.success(
-              f"✅ Sheet '{sheet_to_inspect}' successfully recalculated,"
-              " saved to memory, and synced permanently to the database!"
-          )
-          st.rerun()
-
-      with col_save2:
-        st.caption(
-            "💡 **Standard Fee Table:** Pumps @ KES 2,400 | Digital Scales @"
-            " KES 2,000 | Counter Scales @ KES 1,500 | Mass Weights @ KES 500."
+    with st.expander(
+        "👁️ View & Edit Raw Loaded Workbook Sheets", expanded=True
+    ):
+      if st.session_state["sheets_dict"]:
+        sheet_to_inspect = st.selectbox(
+            "Select Sheet to Edit / Inspect:",
+            list(st.session_state["sheets_dict"].keys()),
+        )
+        st.write(
+            f"Showing active sheet: **{sheet_to_inspect}** (Rows:"
+            f" {len(st.session_state['sheets_dict'][sheet_to_inspect]):,})"
         )
 
-    else:
-      st.warning("No Excel sheets currently loaded in memory.")
+        active_sheet_df = st.session_state["sheets_dict"][
+            sheet_to_inspect
+        ].copy()
+        edited_df = st.data_editor(
+            active_sheet_df,
+            use_container_width=True,
+            num_rows="dynamic",
+            key=f"editor_{sheet_to_inspect}",
+        )
 
-  st.markdown("---")
-  search_query = st.text_input(
-      "Search Filter Active Ledger Records:",
-      placeholder="Type trader name, phone, serial number, or station...",
-  )
+        col_save1, col_save2 = st.columns([1, 2])
+        with col_save1:
+          if st.button("🔄 Auto-Recalculate Fees & Save Sheet"):
+            recalculated_df = edited_df.copy()
 
-  display_df = filtered_df
-  if search_query:
-    mask = display_df.astype(str).apply(
-        lambda x: x.str.contains(search_query, case=False, na=False)
-    )
-    display_df = display_df[mask.any(axis=1)]
+            pumps_cols = [
+                c
+                for c in recalculated_df.columns
+                if any(k in c.lower() for k in ["pump", "nozzle"])
+            ]
+            dig_scale_cols = [
+                c
+                for c in recalculated_df.columns
+                if any(
+                    k in c.lower()
+                    for k in ["digital scale", "platform", "scale(9)"]
+                )
+            ]
+            mech_scale_cols = [
+                c
+                for c in recalculated_df.columns
+                if any(
+                    k in c.lower() for k in ["counter", "mechanical", "spring"]
+                )
+            ]
+            weights_cols = [
+                c
+                for c in recalculated_df.columns
+                if any(k in c.lower() for k in ["weight", "mass"])
+            ]
+            total_fee_cols = [
+                c
+                for c in recalculated_df.columns
+                if any(k in c.lower() for k in ["total", "amount", "kshs"])
+            ]
 
-  st.dataframe(display_df, use_container_width=True)
-  st.caption(f"Displaying {len(display_df)} records.")
+            for idx, row in recalculated_df.iterrows():
+              total_fee = 0
+              for c in pumps_cols:
+                total_fee += (
+                    pd.to_numeric(row[c], errors="coerce") or 0
+                ) * 2400
+              for c in dig_scale_cols:
+                total_fee += (
+                    pd.to_numeric(row[c], errors="coerce") or 0
+                ) * 2000
+              for c in mech_scale_cols:
+                total_fee += (
+                    pd.to_numeric(row[c], errors="coerce") or 0
+                ) * 1500
+              for c in weights_cols:
+                total_fee += (pd.to_numeric(row[c], errors="coerce") or 0) * 500
 
-  st.markdown("---")
+              if total_fee_cols:
+                recalculated_df.at[idx, total_fee_cols[0]] = total_fee
 
-  # EXCEL DOWNLOAD AVAILABLE TO ALL USERS
-  st.markdown("### 📥 Download Up-To-Date Master Excel Workbook")
-  output_excel = io.BytesIO()
-  with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-    if st.session_state["sheets_dict"]:
-      for sname, sdf in st.session_state["sheets_dict"].items():
-        sdf.to_excel(writer, sheet_name=str(sname)[:30], index=False)
-    else:
-      filtered_df.to_excel(writer, sheet_name="Master_Ledger", index=False)
-  excel_data = output_excel.getvalue()
+            with get_db_connection() as conn:
+              cursor = conn.cursor()
+              cursor.execute(
+                  "DELETE FROM ledger_entries WHERE year_sheet = ?",
+                  (sheet_to_inspect,),
+              )
+              for idx, row in recalculated_df.iterrows():
+                t_name = str(row.get("NAME", row.get("Trader_Name", "Unknown")))
+                p_no = str(row.get("Phone No.", row.get("Phone", "0700000000")))
+                stn = str(row.get("STATION", row.get("Sub_County", "OFFICE")))
+                s_no_val = str(
+                    row.get("S/NO.", row.get("Serial_No", "PENDING"))
+                )
+                date_val = str(row.get("DATE", row.get("Date", "PENDING")))
+                tot_amt = (
+                    float(row.get(total_fee_cols[0], 0))
+                    if total_fee_cols
+                    else 0.0
+                )
 
-  st.download_button(
-      label="📊 Download Full Multi-Sheet Workbook (.xlsx)",
-      data=excel_data,
-      file_name="Nyeri_Trader_Inspection_Synthetic_Master.xlsx",
-      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  )
+                cursor.execute(
+                    """
+                            INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    (
+                        sheet_to_inspect,
+                        date_val,
+                        s_no_val,
+                        t_name,
+                        p_no,
+                        stn,
+                        int(row.get("stamped_pumps", 0))
+                        if "stamped_pumps" in row
+                        else 0,
+                        int(row.get("stamped_scales", 0))
+                        if "stamped_scales" in row
+                        else 0,
+                        int(row.get("stamped_weights", 0))
+                        if "stamped_weights" in row
+                        else 0,
+                        tot_amt,
+                        "",
+                        st.session_state["user_name"],
+                    ),
+                )
+              conn.commit()
 
-  # 1-CLICK ANNUAL ROLLOVER: RESTRICTED TO DIRECTOR / ADMINISTRATOR ONLY
-  if is_admin_or_director:
+            st.session_state["sheets_dict"][sheet_to_inspect] = recalculated_df
+            st.success(
+                f"✅ Sheet '{sheet_to_inspect}' successfully recalculated and"
+                " saved permanently to database!"
+            )
+            st.rerun()
+
+        with col_save2:
+          st.caption(
+              "💡 **Standard Fee Table:** Pumps @ KES 2,400 | Digital Scales @"
+              " KES 2,000 | Counter Scales @ KES 1,500 | Mass Weights @ KES"
+              " 500."
+          )
+
     st.markdown("---")
-    st.markdown("### 👑 [Director Restricted] 1-Click Annual Trader Rollover")
-    st.markdown(
-        "Automatically roll over trader profiles from a previous year into a"
-        " new year sheet and save them permanently to the database."
+    search_query = st.text_input(
+        "Search Filter Active Ledger Records:",
+        placeholder="Type trader name, phone, serial number, or station...",
+    )
+    display_df = filtered_df
+    if search_query:
+      mask = display_df.astype(str).apply(
+          lambda x: x.str.contains(search_query, case=False, na=False)
+      )
+      display_df = display_df[mask.any(axis=1)]
+
+    st.dataframe(display_df, use_container_width=True)
+    st.caption(f"Displaying {len(display_df)} records.")
+
+    st.markdown("---")
+    st.markdown("### 📥 Download Up-To-Date Master Excel Workbook")
+    output_excel = io.BytesIO()
+    with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+      if st.session_state["sheets_dict"]:
+        for sname, sdf in st.session_state["sheets_dict"].items():
+          sdf.to_excel(writer, sheet_name=str(sname)[:30], index=False)
+      else:
+        filtered_df.to_excel(writer, sheet_name="Master_Ledger", index=False)
+    excel_data = output_excel.getvalue()
+
+    st.download_button(
+        label="📊 Download Full Multi-Sheet Workbook (.xlsx)",
+        data=excel_data,
+        file_name="Nyeri_Trader_Inspection_Synthetic_Master.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    st.markdown("---")
+    st.markdown("### 👑 1-Click Annual Trader Rollover")
     if available_sheets:
       col_r1, col_r2 = st.columns(2)
       with col_r1:
         source_sheet = st.selectbox(
-            "Source Sheet:",
-            available_sheets,
-            key="src_sheet",
+            "Source Sheet:", available_sheets, key="src_sheet"
         )
       with col_r2:
         target_year = st.text_input(
@@ -816,9 +800,7 @@ with tab1:
       if st.button("🚀 Execute Annual Rollover"):
         if target_year.strip() != "":
           src_df = st.session_state["sheets_dict"][source_sheet].copy()
-
           new_sheet_df = pd.DataFrame()
-
           name_col = next(
               (
                   c
@@ -853,10 +835,8 @@ with tab1:
             else:
               new_sheet_df[col] = 0
 
-          # Commit rolled over records permanently to SQLite database safely
           with get_db_connection() as conn:
             cursor = conn.cursor()
-
             for idx, row in src_df.iterrows():
               t_name = (
                   str(row[name_col])
@@ -876,9 +856,9 @@ with tab1:
 
               cursor.execute(
                   """
-                        INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                            INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
                   (
                       target_year.strip(),
                       "PENDING",
@@ -899,299 +879,96 @@ with tab1:
           st.session_state["sheets_dict"][target_year.strip()] = new_sheet_df
           st.success(
               f"✅ Rolled over {len(new_sheet_df):,} traders into sheet"
-              f" '{target_year.strip()}' and saved permanently to the database!"
+              f" '{target_year.strip()}'!"
           )
           st.rerun()
 
+  with tab2:
+    st.subheader("📈 Executive Revenue & Station Analytics")
+    if station_col and station_col in filtered_df.columns:
+      col_g1, col_g2 = st.columns(2)
+      with col_g1:
+        st.markdown("**Inspections Volume per Sub-County**")
+        st.bar_chart(filtered_df.groupby(station_col).size())
+      with col_g2:
+        if rev_col and rev_col in filtered_df.columns:
+          st.markdown("**Revenue Collected per Sub-County (KES)**")
+          station_rev = filtered_df.groupby(station_col)[rev_col].sum()
+          st.bar_chart(station_rev)
+    else:
+      st.info("Station or Revenue columns not detected in the current sheet.")
 
-# --- TAB 2: MULTI-YEAR REVENUE & STATION ANALYTICS ---
-with tab2:
-  st.subheader("📈 Multi-Year Revenue & Station Analytics")
-  st.markdown(
-      "Overview of all sub-counties, inspection volumes, and revenue collection"
-      " metrics across years."
-  )
+  with tab3:
+    st.subheader("👑 Inspector Activity & Performance Audit Log")
+    st.markdown(
+        "Real-time tracking of field submissions logged by each inspector across"
+        " Nyeri County."
+    )
+    db_full = load_all_db_records()
+    if not db_full.empty:
+      st.dataframe(db_full, use_container_width=True)
+    else:
+      st.info("No inspector activity recorded in the database yet.")
 
-  if station_col and station_col in filtered_df.columns:
-    col_g1, col_g2 = st.columns(2)
+  with tab4:
+    st.subheader("📅 Circuit Schedules & Mass SMS Notification Engine")
+    st.markdown(
+        "Broadcast stamping inspection notices directly to registered traders in"
+        " Nyeri County via Safaricom SMS Gateway."
+    )
+    st.dataframe(st.session_state["schedules"], use_container_width=True)
 
-    with col_g1:
-      st.markdown("**Inspections Volume per Sub-County**")
-      st.bar_chart(filtered_df.groupby(station_col).size())
+    st.markdown("---")
+    st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
+    dynamic_stations = []
+    for sdf in st.session_state["sheets_dict"].values():
+      scols = [c for c in sdf.columns if "station" in c.lower()]
+      if scols:
+        dynamic_stations.extend(sdf[scols[0]].dropna().unique().tolist())
 
-    with col_g2:
-      if rev_col and rev_col in filtered_df.columns:
-        st.markdown("**Revenue Collected per Sub-County (KES)**")
-        station_rev = filtered_df.groupby(station_col)[rev_col].sum()
-        st.bar_chart(station_rev)
-
-    # DIRECTOR EXCLUSIVE AUDIT VIEW
-    if is_admin_or_director:
-      st.markdown("---")
-      st.markdown(
-          "### 👑 [Director Exclusive] Inspector Performance & Activity Log"
-      )
-      db_full = load_all_db_records()
-      if not db_full.empty and "inspector_logged" in db_full.columns:
-        st.dataframe(
-            db_full[[
-                "created_at",
-                "inspector_logged",
-                "station" if "station" in db_full.columns else "station",
-                "trader_name",
-                "total_amount",
-            ]],
-            use_container_width=True,
-        )
-      else:
-        st.info(
-            "Live inspector activity logs will populate here as field entries"
-            " are made."
-        )
-  else:
-    st.info("Station or Revenue columns not detected in the current sheet.")
-
-
-# --- TAB 3: FIELD ENTRY & AUTO-RECEIPT GENERATOR ---
-with tab3:
-  st.subheader("📝 Log Field Verification & Issue Official Receipt")
-  st.markdown(
-      f"Logged in as: **{st.session_state['user_name']}**"
-      f" ({st.session_state['user_role']})"
-  )
-
-  if "last_receipt_data" not in st.session_state:
-    st.session_state["last_receipt_data"] = None
-
-  sno_col_candidates = [
-      c
-      for c in df_active.columns
-      if "s/no" in c.lower() or "serial" in c.lower()
-  ]
-  sno_col = sno_col_candidates[0] if sno_col_candidates else None
-
-  default_sno = 204820
-  if sno_col and sno_col in df_active.columns:
-    try:
-      default_sno = int(
-          pd.to_numeric(df_active[sno_col], errors="coerce").max() + 1
-      )
-    except Exception:
-      pass
-
-  with st.form("inspection_form"):
-    f_col1, f_col2 = st.columns(2)
-    with f_col1:
-      st.text_input(
-          "Official Certificate Serial No. (S/NO.)",
-          value=f"{default_sno}",
-          disabled=True,
-      )
-      target_sheet_entry = st.selectbox(
-          "Save To Year Sheet:",
-          available_sheets if available_sheets else ["2026"],
-      )
-      new_trader = st.text_input(
-          "Trader / Business Name", placeholder="e.g. DEKUT COFFEE"
-      )
-      phone_number = st.text_input(
-          "Trader Phone Number", placeholder="0722906936"
-      )
-      new_station = st.selectbox(
-          "Station / Location (All Sub-Counties)",
-          [
-              "NYERI TOWN",
-              "OTHAYA",
-              "MUKURWEINI",
-              "TETU",
-              "KIENI EAST",
-              "KIENI WEST",
-              "MATHIRA EAST",
-              "MATHIRA WEST",
-          ],
-      )
-      inspection_date_obj = st.date_input(
-          "Inspection Date", value=datetime.today()
-      )
-
-    with f_col2:
-      stamped_pumps = st.number_input(
-          "Stamped Fuel Pumps / Nozzles (KES 2,400 ea)", min_value=0, value=1
-      )
-      stamped_scales = st.number_input(
-          "Stamped Scales (KES 2,000 ea)", min_value=0, value=0
-      )
-      stamped_weights = st.number_input(
-          "Stamped Weights (KES 500 ea)", min_value=0, value=0
-      )
-      mpesa_code = st.text_input(
-          "M-Pesa Confirmation Code", placeholder="e.g., QHX20481"
-      )
-
-    submitted = st.form_submit_button(
-        "Calculate Total, Verify Payment & Log Entry"
+    schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
+    all_stations = sorted(
+        list(set(schedule_stations + [str(s) for s in dynamic_stations]))
     )
 
-    if submitted:
-      clean_code = mpesa_code.strip().upper()
-      clean_phone = (
-          phone_number.strip() if phone_number.strip() != "" else "0700000000"
-      )
+    sms_station = st.selectbox(
+        "Select Target Station / Sub-County for SMS Notice:",
+        ["All Stations"] + all_stations,
+    )
 
-      calc_fee = (
-          (stamped_pumps * 2400)
-          + (stamped_scales * 2000)
-          + (stamped_weights * 500)
-      )
-      if calc_fee == 0:
-        calc_fee = 2000
+    if (
+        sms_station != "All Stations"
+        and station_col
+        and station_col in df_active.columns
+    ):
+      recipient_df = df_active[
+          df_active[station_col]
+          .astype(str)
+          .str.contains(sms_station, case=False, na=False)
+      ].copy()
+    else:
+      recipient_df = df_active.copy()
 
-      if new_trader.strip() == "":
-        st.warning("Please enter a valid Trader / Business Name.")
-      elif len(clean_code) < 8:
-        st.error(
-            "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required."
-        )
-      else:
-        inspection_date_str = inspection_date_obj.strftime("%Y-%m-%d")
-        next_due_str = (inspection_date_obj + timedelta(days=365)).strftime(
-            "%Y-%m-%d"
-        )
+    trader_col = next(
+        (
+            c
+            for c in recipient_df.columns
+            if "name" in c.lower() or "trader" in c.lower()
+        ),
+        None,
+    )
+    phone_col = next(
+        (
+            c
+            for c in recipient_df.columns
+            if "phone" in c.lower() or "contact" in c.lower()
+        ),
+        None,
+    )
 
-        rec_payload = {
-            "year_sheet": target_sheet_entry,
-            "s_no": default_sno,
-            "trader": new_trader,
-            "phone": clean_phone,
-            "station": new_station,
-            "pumps": stamped_pumps,
-            "scales": stamped_scales,
-            "weights": stamped_weights,
-            "fee": calc_fee,
-            "code": clean_code,
-            "date": inspection_date_str,
-            "due": next_due_str,
-            "inspector": st.session_state["user_name"],
-        }
-
-        # 1. Save to SQLite securely
-        save_record_to_db(rec_payload)
-
-        # 2. Append to Session Workbook
-        new_row = pd.DataFrame([{
-            "DATE": inspection_date_str,
-            "S/NO.": default_sno,
-            "NAME": new_trader,
-            "Phone No.": clean_phone,
-            "STATION": new_station,
-            "Total Amount kshs": calc_fee,
-        }])
-
-        if target_sheet_entry in st.session_state["sheets_dict"]:
-          st.session_state["sheets_dict"][target_sheet_entry] = pd.concat(
-              [st.session_state["sheets_dict"][target_sheet_entry], new_row],
-              ignore_index=True,
-          )
-        else:
-          st.session_state["sheets_dict"][target_sheet_entry] = new_row
-
-        st.session_state["last_receipt_data"] = rec_payload
-        st.success(
-            f"✅ Inspection logged successfully! Total Fee: KES"
-            f" {calc_fee:,.2f}. Certificate generated."
-        )
-        st.rerun()
-
-  if st.session_state["last_receipt_data"]:
-    r = st.session_state["last_receipt_data"]
-    st.markdown("---")
-    st.subheader("📄 Official Verification Certificate Preview")
-    try:
-      pdf_bytes = generate_pdf_certificate(r)
-      st.download_button(
-          label="📥 Download Official Verification Certificate (.pdf)",
-          data=pdf_bytes,
-          file_name=(
-              f"Certificate_{r['s_no']}_{r['trader'].replace(' ', '_')}.pdf"
-          ),
-          mime="application/pdf",
-          key=f"btn_pdf_{r['s_no']}",
-      )
-    except Exception as e:
-      st.warning(
-          "⚠️ Session timed out. Please click submit again or refresh the"
-          " page."
-      )
-
-
-# --- TAB 4: CIRCUIT SCHEDULES & MASS SMS ENGINE ---
-with tab4:
-  st.subheader("📅 Circuit Schedules & Mass SMS Notification Engine")
-  st.markdown(
-      "Broadcast stamping inspection notices directly to registered traders in"
-      " Nyeri County via Safaricom SMS Gateway."
-  )
-
-  st.dataframe(st.session_state["schedules"], use_container_width=True)
-
-  st.markdown("---")
-  st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
-
-  # Extract stations dynamically from all loaded sheets in sheets_dict
-  dynamic_stations = []
-  for sdf in st.session_state["sheets_dict"].values():
-    scols = [c for c in sdf.columns if "station" in c.lower()]
-    if scols:
-      dynamic_stations.extend(sdf[scols[0]].dropna().unique().tolist())
-
-  schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
-  all_stations = sorted(
-      list(set(schedule_stations + [str(s) for s in dynamic_stations]))
-  )
-
-  sms_station = st.selectbox(
-      "Select Target Station / Sub-County for SMS Notice:",
-      ["All Stations"] + all_stations,
-  )
-
-  # Filter target recipients based on selected station across sheets
-  if (
-      sms_station != "All Stations"
-      and station_col
-      and station_col in df_active.columns
-  ):
-    recipient_df = df_active[
-        df_active[station_col]
-        .astype(str)
-        .str.contains(sms_station, case=False, na=False)
-    ].copy()
-  else:
-    recipient_df = df_active.copy()
-
-  trader_col = next(
-      (
-          c
-          for c in recipient_df.columns
-          if "name" in c.lower() or "trader" in c.lower()
-      ),
-      None,
-  )
-  phone_col = next(
-      (
-          c
-          for c in recipient_df.columns
-          if "phone" in c.lower() or "contact" in c.lower()
-      ),
-      None,
-  )
-
-  # Display Recipient Preview Box & Metrics with Cost Estimator
-  st.markdown(f"#### 👥 Target Recipient List Preview (`{sms_station}`)")
-
-  col_m1, col_m2, col_m3 = st.columns(3)
-  total_recipients = len(recipient_df)
-
-  if phone_col:
+    st.markdown(f"#### 👥 Target Recipient List Preview (`{sms_station}`)")
+    col_m1, col_m2, col_m3 = st.columns(3)
+    total_recipients = len(recipient_df)
     valid_contacts = (
         recipient_df[phone_col]
         .astype(str)
@@ -1199,104 +976,430 @@ with tab4:
         .replace("", np.nan)
         .dropna()
         .nunique()
+        if phone_col
+        else total_recipients
     )
-  else:
-    valid_contacts = total_recipients
+    est_sms_cost = valid_contacts * 0.80
 
-  # Estimated bulk SMS cost (KES 0.80 per SMS)
-  est_sms_cost = valid_contacts * 0.80
+    col_m1.metric("Traders Selected", f"{total_recipients:,}")
+    col_m2.metric("Valid Mobile Contacts", f"{valid_contacts:,}")
+    col_m3.metric("Est. Broadcast Cost", f"KES {est_sms_cost:,.2f}")
 
-  col_m1.metric("Traders Selected", f"{total_recipients:,}")
-  col_m2.metric("Valid Mobile Contacts", f"{valid_contacts:,}")
-  col_m3.metric("Est. Broadcast Cost", f"KES {est_sms_cost:,.2f}")
-
-  preview_cols = [
-      c
-      for c in [trader_col, phone_col, station_col]
-      if c and c in recipient_df.columns
-  ]
-  if preview_cols:
-    st.dataframe(
-        recipient_df[preview_cols].reset_index(drop=True),
-        use_container_width=True,
-        height=200,
-    )
-  else:
-    st.dataframe(recipient_df.head(20), use_container_width=True, height=200)
-
-  st.markdown("---")
-
-  # Dynamically generate SMS content based on selected schedule station
-  default_sms = ""
-  sched_df = st.session_state["schedules"]
-
-  if sms_station != "All Stations":
-    match_row = sched_df[
-        sched_df["Sub_County"].str.contains(sms_station, case=False, na=False)
+    preview_cols = [
+        c
+        for c in [trader_col, phone_col, station_col]
+        if c and c in recipient_df.columns
     ]
-    if not match_row.empty:
-      venue = match_row.iloc[0]["Verification_Center"]
-      start_date = match_row.iloc[0]["Start_Date"]
-      end_date = match_row.iloc[0]["End_Date"]
-      inspector = match_row.iloc[0]["Assigned_Inspector"]
-
-      default_sms = (
-          f"Jambo County Govt of Nyeri: Weights & Measures team will be"
-          f" conducting verification at {sms_station} ({venue}) from"
-          f" {start_date} to {end_date}. Lead Inspector: {inspector}. Please"
-          " ensure valid stamping of all devices to avoid penalties."
-          " Enquiries: 061-2030700."
+    if preview_cols:
+      st.dataframe(
+          recipient_df[preview_cols].reset_index(drop=True),
+          use_container_width=True,
+          height=200,
       )
     else:
+      st.dataframe(recipient_df.head(20), use_container_width=True, height=200)
+
+    st.markdown("---")
+    default_sms = ""
+    sched_df = st.session_state["schedules"]
+    if sms_station != "All Stations":
+      match_row = sched_df[
+          sched_df["Sub_County"].str.contains(sms_station, case=False, na=False)
+      ]
+      if not match_row.empty:
+        venue = match_row.iloc[0]["Verification_Center"]
+        start_date = match_row.iloc[0]["Start_Date"]
+        end_date = match_row.iloc[0]["End_Date"]
+        inspector = match_row.iloc[0]["Assigned_Inspector"]
+        default_sms = (
+            f"Jambo County Govt of Nyeri: Weights & Measures team will be"
+            f" conducting verification at {sms_station} ({venue}) from"
+            f" {start_date} to {end_date}. Lead Inspector: {inspector}. Please"
+            " ensure valid stamping of all devices to avoid penalties."
+            " Enquiries: 061-2030700."
+        )
+      else:
+        default_sms = (
+            f"Jambo County Govt of Nyeri: Weights & Measures inspection team"
+            f" will be at {sms_station} starting next week. Please ensure valid"
+            " stamping. Enquiries: 061-2030700."
+        )
+    else:
       default_sms = (
-          f"Jambo County Govt of Nyeri: Weights & Measures inspection team will"
-          f" be at {sms_station} starting next week. Please ensure valid"
-          " stamping of all weighing devices. Enquiries: 061-2030700."
+          "Jambo County Govt of Nyeri: Weights & Measures inspection teams are"
+          " deployed across county stations for annual verification. Enquiries:"
+          " 061-2030700."
       )
-  else:
-    default_sms = (
-        "Jambo County Govt of Nyeri: Weights & Measures inspection teams are"
-        " deployed across county stations for annual verification. Please"
-        " ensure valid stamping of all devices. Enquiries: 061-2030700."
+
+    sms_message = st.text_area(
+        "SMS Notice Content (Auto-populated from Schedule):",
+        value=default_sms,
+        height=120,
+    )
+    if st.button("🚀 Broadcast SMS via Safaricom Gateway"):
+      if total_recipients == 0:
+        st.error("⚠️ No registered traders found for the selected station.")
+      elif sms_message.strip() == "":
+        st.warning("⚠️ SMS message content cannot be empty.")
+      else:
+        st.success(
+            f"✅ Bulk SMS notice successfully dispatched to {valid_contacts:,}"
+            f" registered traders across {sms_station}! Estimated Cost: KES"
+            f" {est_sms_cost:,.2f}"
+        )
+
+  with tab5:
+    st.subheader("🚨 Inspection Due & Renewal Dashboard")
+    st.markdown(
+        "Track devices and traders whose 12-month statutory stamping"
+        " verification is due or expiring soon."
+    )
+    due_days = st.slider(
+        "Filter by days until expiry/due:", min_value=30, max_value=365, value=90
+    )
+    st.info(
+        f"Showing traders due for renewal within the next {due_days} days across"
+        " Nyeri County sub-counties."
+    )
+    if not filtered_df.empty:
+      st.dataframe(filtered_df.head(25), use_container_width=True)
+    else:
+      st.warning("No records available for inspection due filtering.")
+
+else:
+  # --- FIELD INSPECTOR TABS ---
+  tab1, tab2, tab3, tab4 = st.tabs([
+      "📝 Log Field Verification & Issue Receipt",
+      "📂 View Station Ledger & Records",
+      "📅 Circuit Schedules & SMS Notices",
+      "🚨 Inspection Due Tracker",
+  ])
+
+  with tab1:
+    st.subheader("📝 Log Field Verification & Issue Official Receipt")
+    st.markdown(
+        f"Logged in as: **{st.session_state['user_name']}**"
+        f" ({st.session_state['user_role']})"
     )
 
-  sms_message = st.text_area(
-      "SMS Notice Content (Auto-populated from Schedule):",
-      value=default_sms,
-      height=120,
-  )
+    if "last_receipt_data" not in st.session_state:
+      st.session_state["last_receipt_data"] = None
 
-  if st.button("🚀 Broadcast SMS via Safaricom Gateway"):
-    if total_recipients == 0:
-      st.error("⚠️ No registered traders found for the selected station.")
-    elif sms_message.strip() == "":
-      st.warning("⚠️ SMS message content cannot be empty.")
-    else:
-      st.success(
-          f"✅ Bulk SMS notice successfully dispatched to {valid_contacts:,}"
-          f" registered traders across {sms_station}! Estimated Cost: KES"
-          f" {est_sms_cost:,.2f} (Safaricom Gateway API connected)"
+    sno_col_candidates = [
+        c
+        for c in df_active.columns
+        if "s/no" in c.lower() or "serial" in c.lower()
+    ]
+    sno_col = sno_col_candidates[0] if sno_col_candidates else None
+    default_sno = 204820
+    if sno_col and sno_col in df_active.columns:
+      try:
+        default_sno = int(
+            pd.to_numeric(df_active[sno_col], errors="coerce").max() + 1
+        )
+      except Exception:
+        pass
+
+    with st.form("inspection_form"):
+      f_col1, f_col2 = st.columns(2)
+      with f_col1:
+        st.text_input(
+            "Official Certificate Serial No. (S/NO.)",
+            value=f"{default_sno}",
+            disabled=True,
+        )
+        target_sheet_entry = st.selectbox(
+            "Save To Year Sheet:",
+            available_sheets if available_sheets else ["2026"],
+        )
+        new_trader = st.text_input(
+            "Trader / Business Name", placeholder="e.g. DEKUT COFFEE"
+        )
+        phone_number = st.text_input(
+            "Trader Phone Number", placeholder="0722906936"
+        )
+        new_station = st.selectbox(
+            "Station / Location (All Sub-Counties)",
+            [
+                "NYERI TOWN",
+                "OTHAYA",
+                "MUKURWEINI",
+                "TETU",
+                "KIENI EAST",
+                "KIENI WEST",
+                "MATHIRA EAST",
+                "MATHIRA WEST",
+            ],
+        )
+        inspection_date_obj = st.date_input(
+            "Inspection Date", value=datetime.today()
+        )
+
+      with f_col2:
+        stamped_pumps = st.number_input(
+            "Stamped Fuel Pumps / Nozzles (KES 2,400 ea)", min_value=0, value=1
+        )
+        stamped_scales = st.number_input(
+            "Stamped Scales (KES 2,000 ea)", min_value=0, value=0
+        )
+        stamped_weights = st.number_input(
+            "Stamped Weights (KES 500 ea)", min_value=0, value=0
+        )
+        mpesa_code = st.text_input(
+            "M-Pesa Confirmation Code", placeholder="e.g., QHX20481"
+        )
+
+      submitted = st.form_submit_button(
+          "Calculate Total, Verify Payment & Log Entry"
       )
 
+      if submitted:
+        clean_code = mpesa_code.strip().upper()
+        clean_phone = (
+            phone_number.strip() if phone_number.strip() != "" else "0700000000"
+        )
+        calc_fee = (
+            (stamped_pumps * 2400)
+            + (stamped_scales * 2000)
+            + (stamped_weights * 500)
+        )
+        if calc_fee == 0:
+          calc_fee = 2000
 
-# --- TAB 5: INSPECTION DUE DASHBOARD ---
-with tab5:
-  st.subheader("🚨 Inspection Due & Renewal Dashboard")
-  st.markdown(
-      "Track devices and traders whose 12-month statutory stamping"
-      " verification is due or expiring soon."
-  )
+        if new_trader.strip() == "":
+          st.warning("Please enter a valid Trader / Business Name.")
+        elif len(clean_code) < 8:
+          st.error(
+              "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required."
+          )
+        else:
+          inspection_date_str = inspection_date_obj.strftime("%Y-%m-%d")
+          next_due_str = (inspection_date_obj + timedelta(days=365)).strftime(
+              "%Y-%m-%d"
+          )
 
-  due_days = st.slider(
-      "Filter by days until expiry/due:", min_value=30, max_value=365, value=90
-  )
+          rec_payload = {
+              "year_sheet": target_sheet_entry,
+              "s_no": default_sno,
+              "trader": new_trader,
+              "phone": clean_phone,
+              "station": new_station,
+              "pumps": stamped_pumps,
+              "scales": stamped_scales,
+              "weights": stamped_weights,
+              "fee": calc_fee,
+              "code": clean_code,
+              "date": inspection_date_str,
+              "due": next_due_str,
+              "inspector": st.session_state["user_name"],
+          }
 
-  st.info(
-      f"Showing traders due for renewal within the next {due_days} days across"
-      " Nyeri County sub-counties."
-  )
+          save_record_to_db(rec_payload)
 
-  if not filtered_df.empty:
-    st.dataframe(filtered_df.head(25), use_container_width=True)
-  else:
-    st.warning("No records available for inspection due filtering.")
+          new_row = pd.DataFrame([{
+              "DATE": inspection_date_str,
+              "S/NO.": default_sno,
+              "NAME": new_trader,
+              "Phone No.": clean_phone,
+              "STATION": new_station,
+              "Total Amount kshs": calc_fee,
+          }])
+
+          if target_sheet_entry in st.session_state["sheets_dict"]:
+            st.session_state["sheets_dict"][target_sheet_entry] = pd.concat(
+                [st.session_state["sheets_dict"][target_sheet_entry], new_row],
+                ignore_index=True,
+            )
+          else:
+            st.session_state["sheets_dict"][target_sheet_entry] = new_row
+
+          st.session_state["last_receipt_data"] = rec_payload
+          st.success(
+              f"✅ Inspection logged successfully! Total Fee: KES"
+              f" {calc_fee:,.2f}. Certificate generated."
+          )
+          st.rerun()
+
+    if st.session_state["last_receipt_data"]:
+      r = st.session_state["last_receipt_data"]
+      st.markdown("---")
+      st.subheader("📄 Official Verification Certificate Preview")
+      try:
+        pdf_bytes = generate_pdf_certificate(r)
+        st.download_button(
+            label="📥 Download Official Verification Certificate (.pdf)",
+            data=pdf_bytes,
+            file_name=(
+                f"Certificate_{r['s_no']}_{r['trader'].replace(' ', '_')}.pdf"
+            ),
+            mime="application/pdf",
+            key=f"btn_pdf_{r['s_no']}",
+        )
+      except Exception as e:
+        st.warning("⚠️ Session timed out. Please click submit again.")
+
+  with tab2:
+    st.subheader("📂 Station Ledger & Records Explorer")
+    search_query = st.text_input(
+        "Search Filter Active Ledger Records:",
+        placeholder="Type trader name, phone, serial number, or station...",
+    )
+    display_df = filtered_df
+    if search_query:
+      mask = display_df.astype(str).apply(
+          lambda x: x.str.contains(search_query, case=False, na=False)
+      )
+      display_df = display_df[mask.any(axis=1)]
+    st.dataframe(display_df, use_container_width=True)
+    st.caption(f"Displaying {len(display_df)} records.")
+
+  with tab3:
+    st.subheader("📅 Circuit Schedules & SMS Notice Previews")
+    st.dataframe(st.session_state["schedules"], use_container_width=True)
+    st.markdown("---")
+    st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
+
+    dynamic_stations = []
+    for sdf in st.session_state["sheets_dict"].values():
+      scols = [c for c in sdf.columns if "station" in c.lower()]
+      if scols:
+        dynamic_stations.extend(sdf[scols[0]].dropna().unique().tolist())
+    schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
+    all_stations = sorted(
+        list(set(schedule_stations + [str(s) for s in dynamic_stations]))
+    )
+
+    sms_station = st.selectbox(
+        "Select Target Station / Sub-County for SMS Notice:",
+        ["All Stations"] + all_stations,
+    )
+
+    if (
+        sms_station != "All Stations"
+        and station_col
+        and station_col in df_active.columns
+    ):
+      recipient_df = df_active[
+          df_active[station_col]
+          .astype(str)
+          .str.contains(sms_station, case=False, na=False)
+      ].copy()
+    else:
+      recipient_df = df_active.copy()
+
+    trader_col = next(
+        (
+            c
+            for c in recipient_df.columns
+            if "name" in c.lower() or "trader" in c.lower()
+        ),
+        None,
+    )
+    phone_col = next(
+        (
+            c
+            for c in recipient_df.columns
+            if "phone" in c.lower() or "contact" in c.lower()
+        ),
+        None,
+    )
+
+    st.markdown(f"#### 👥 Target Recipient List Preview (`{sms_station}`)")
+    col_m1, col_m2, col_m3 = st.columns(3)
+    total_recipients = len(recipient_df)
+    valid_contacts = (
+        recipient_df[phone_col]
+        .astype(str)
+        .str.strip()
+        .replace("", np.nan)
+        .dropna()
+        .nunique()
+        if phone_col
+        else total_recipients
+    )
+    est_sms_cost = valid_contacts * 0.80
+
+    col_m1.metric("Traders Selected", f"{total_recipients:,}")
+    col_m2.metric("Valid Mobile Contacts", f"{valid_contacts:,}")
+    col_m3.metric("Est. Broadcast Cost", f"KES {est_sms_cost:,.2f}")
+
+    preview_cols = [
+        c
+        for c in [trader_col, phone_col, station_col]
+        if c and c in recipient_df.columns
+    ]
+    if preview_cols:
+      st.dataframe(
+          recipient_df[preview_cols].reset_index(drop=True),
+          use_container_width=True,
+          height=200,
+      )
+    else:
+      st.dataframe(recipient_df.head(20), use_container_width=True, height=200)
+
+    st.markdown("---")
+    default_sms = ""
+    sched_df = st.session_state["schedules"]
+    if sms_station != "All Stations":
+      match_row = sched_df[
+          sched_df["Sub_County"].str.contains(sms_station, case=False, na=False)
+      ]
+      if not match_row.empty:
+        venue = match_row.iloc[0]["Verification_Center"]
+        start_date = match_row.iloc[0]["Start_Date"]
+        end_date = match_row.iloc[0]["End_Date"]
+        inspector = match_row.iloc[0]["Assigned_Inspector"]
+        default_sms = (
+            f"Jambo County Govt of Nyeri: Weights & Measures team will be"
+            f" conducting verification at {sms_station} ({venue}) from"
+            f" {start_date} to {end_date}. Lead Inspector: {inspector}. Please"
+            " ensure valid stamping of all devices to avoid penalties."
+            " Enquiries: 061-2030700."
+        )
+      else:
+        default_sms = (
+            f"Jambo County Govt of Nyeri: Weights & Measures inspection team"
+            f" will be at {sms_station} starting next week. Please ensure valid"
+            " stamping. Enquiries: 061-2030700."
+        )
+    else:
+      default_sms = (
+          "Jambo County Govt of Nyeri: Weights & Measures inspection teams are"
+          " deployed across county stations for annual verification. Enquiries:"
+          " 061-2030700."
+      )
+
+    sms_message = st.text_area(
+        "SMS Notice Content (Auto-populated from Schedule):",
+        value=default_sms,
+        height=120,
+    )
+    if st.button("🚀 Broadcast SMS via Safaricom Gateway"):
+      if total_recipients == 0:
+        st.error("⚠️ No registered traders found for the selected station.")
+      elif sms_message.strip() == "":
+        st.warning("⚠️ SMS message content cannot be empty.")
+      else:
+        st.success(
+            f"✅ Bulk SMS notice successfully dispatched to {valid_contacts:,}"
+            f" registered traders across {sms_station}! Estimated Cost: KES"
+            f" {est_sms_cost:,.2f}"
+        )
+
+  with tab4:
+    st.subheader("🚨 Inspection Due & Renewal Dashboard")
+    st.markdown(
+        "Track devices and traders whose 12-month statutory stamping"
+        " verification is due or expiring soon."
+    )
+    due_days = st.slider(
+        "Filter by days until expiry/due:", min_value=30, max_value=365, value=90
+    )
+    st.info(
+        f"Showing traders due for renewal within the next {due_days} days across"
+        " Nyeri County sub-counties."
+    )
+    if not filtered_df.empty:
+      st.dataframe(filtered_df.head(25), use_container_width=True)
+    else:
+      st.warning("No records available for inspection due filtering.")
