@@ -356,7 +356,7 @@ def load_workbook_from_git(file_path):
 
 if "sheets_dict" not in st.session_state:
   st.session_state["sheets_dict"] = {}
-  # UPDATED TO USE SYNTHETIC DATASET FILENAME
+  # USING THE SYNTHETIC DATASET FILENAME
   default_workbook_path = "Nyeri_Trader_Inspection_Synthetic.xlsx"
   try:
     with st.spinner(
@@ -1082,28 +1082,61 @@ with tab4:
 
   st.markdown("---")
   st.markdown("### 📤 Send Bulk SMS Circuit Notice to Traders")
+
+  schedule_stations = list(st.session_state["schedules"]["Sub_County"].unique())
   sms_station = st.selectbox(
-      "Select Target Station for SMS:",
-      ["All Stations"]
-      + list(df_active[station_col].dropna().unique())
-      if station_col
-      else ["All Stations"],
+      "Select Target Station for SMS Notice:",
+      ["All Stations"] + schedule_stations,
   )
+
+  # Dynamically generate SMS content based on selected schedule station
+  default_sms = ""
+  sched_df = st.session_state["schedules"]
+
+  if sms_station != "All Stations":
+    match_row = sched_df[
+        sched_df["Sub_County"].str.contains(sms_station, case=False, na=False)
+    ]
+    if not match_row.empty:
+      venue = match_row.iloc[0]["Verification_Center"]
+      start_date = match_row.iloc[0]["Start_Date"]
+      end_date = match_row.iloc[0]["End_Date"]
+      inspector = match_row.iloc[0]["Assigned_Inspector"]
+
+      default_sms = (
+          f"Jambo County Govt of Nyeri: Weights & Measures team will be"
+          f" conducting verification at {sms_station} ({venue}) from"
+          f" {start_date} to {end_date}. Lead Inspector: {inspector}. Please"
+          " ensure valid stamping of all devices to avoid penalties."
+          " Enquiries: 061-2030700."
+      )
+    else:
+      default_sms = (
+          f"Jambo County Govt of Nyeri: Weights & Measures inspection team will"
+          f" be at {sms_station} starting next week. Please ensure valid"
+          " stamping of all weighing devices. Enquiries: 061-2030700."
+      )
+  else:
+    default_sms = (
+        "Jambo County Govt of Nyeri: Weights & Measures inspection teams are"
+        " deployed across county stations for annual verification. Please"
+        " ensure valid stamping of all devices. Enquiries: 061-2030700."
+    )
+
   sms_message = st.text_area(
-      "SMS Notice Content:",
-      value=(
-          "Jambo, County Govt of Nyeri: Weights & Measures inspection team will"
-          " be at your station starting next week. Please ensure valid"
-          " stamping of all weighing devices to avoid penalties. Enquiries:"
-          " 061-2030700."
-      ),
+      "SMS Notice Content (Auto-populated from Schedule):",
+      value=default_sms,
+      height=120,
   )
 
   if st.button("🚀 Broadcast SMS via Safaricom Gateway"):
-    st.success(
-        f"✅ Bulk SMS notice successfully dispatched to registered traders"
-        f" across {sms_station}! (Safaricom Gateway API connected)"
-    )
+    if sms_message.strip() != "":
+      st.success(
+          f"✅ Bulk SMS notice successfully dispatched to registered traders"
+          f" across {sms_station}! (Safaricom Gateway API connected)"
+      )
+    else:
+      st.warning("⚠️ SMS message content cannot be empty.")
 
 
 # --- TAB 5: INSPECTION DUE DASHBOARD ---
