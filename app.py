@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING (WITH SPINNING LOADER) ---
+# --- 0. OFFICIAL NYERI COUNTY CUSTOM CSS STYLING ---
 nyeri_custom_css = """
 <style>
     @keyframes spin {
@@ -558,8 +558,8 @@ st.markdown(
 if is_admin_or_director:
   st.title("👑 Executive Director Audit & Oversight Hub")
   st.markdown(
-      "*Master registry controls, multi-year revenue analytics, and inspector"
-      " performance tracking.*"
+      "*Executive master registry reporting, multi-year revenue analytics, and"
+      " inspector audit tracking.*"
   )
 else:
   st.title("🛠️ Field Inspector Operations Portal")
@@ -594,7 +594,7 @@ st.markdown("---")
 
 # --- 7. ROLE-SEPARATED NAVIGATION TABS ---
 if is_admin_or_director:
-  # --- DIRECTOR / ADMINISTRATOR TABS ---
+  # --- DIRECTOR / ADMINISTRATOR HUB (READ-ONLY REPORTING & OVERSEER) ---
   tab1, tab2, tab3, tab4, tab5 = st.tabs([
       "📂 Master Registry & Annual Rollover",
       "📈 Executive Revenue & Station Analytics",
@@ -604,154 +604,12 @@ if is_admin_or_director:
   ])
 
   with tab1:
-    st.subheader("Master Verification Registry & Interactive Ledger")
+    st.subheader("Master Verification Registry & Reporting")
     st.markdown(
-        "Inspect historical records, edit inspection details live, or roll"
-        " over annual trader profiles."
+        "Executive overview of all historical county ledgers and annual trader"
+        " rollovers."
     )
 
-    with st.expander(
-        "👁️ View & Edit Raw Loaded Workbook Sheets", expanded=True
-    ):
-      if st.session_state["sheets_dict"]:
-        sheet_to_inspect = st.selectbox(
-            "Select Sheet to Edit / Inspect:",
-            list(st.session_state["sheets_dict"].keys()),
-        )
-        st.write(
-            f"Showing active sheet: **{sheet_to_inspect}** (Rows:"
-            f" {len(st.session_state['sheets_dict'][sheet_to_inspect]):,})"
-        )
-
-        active_sheet_df = st.session_state["sheets_dict"][
-            sheet_to_inspect
-        ].copy()
-        edited_df = st.data_editor(
-            active_sheet_df,
-            use_container_width=True,
-            num_rows="dynamic",
-            key=f"editor_{sheet_to_inspect}",
-        )
-
-        col_save1, col_save2 = st.columns([1, 2])
-        with col_save1:
-          if st.button("🔄 Auto-Recalculate Fees & Save Sheet"):
-            recalculated_df = edited_df.copy()
-
-            pumps_cols = [
-                c
-                for c in recalculated_df.columns
-                if any(k in c.lower() for k in ["pump", "nozzle"])
-            ]
-            dig_scale_cols = [
-                c
-                for c in recalculated_df.columns
-                if any(
-                    k in c.lower()
-                    for k in ["digital scale", "platform", "scale(9)"]
-                )
-            ]
-            mech_scale_cols = [
-                c
-                for c in recalculated_df.columns
-                if any(
-                    k in c.lower() for k in ["counter", "mechanical", "spring"]
-                )
-            ]
-            weights_cols = [
-                c
-                for c in recalculated_df.columns
-                if any(k in c.lower() for k in ["weight", "mass"])
-            ]
-            total_fee_cols = [
-                c
-                for c in recalculated_df.columns
-                if any(k in c.lower() for k in ["total", "amount", "kshs"])
-            ]
-
-            for idx, row in recalculated_df.iterrows():
-              total_fee = 0
-              for c in pumps_cols:
-                total_fee += (
-                    pd.to_numeric(row[c], errors="coerce") or 0
-                ) * 2400
-              for c in dig_scale_cols:
-                total_fee += (
-                    pd.to_numeric(row[c], errors="coerce") or 0
-                ) * 2000
-              for c in mech_scale_cols:
-                total_fee += (
-                    pd.to_numeric(row[c], errors="coerce") or 0
-                ) * 1500
-              for c in weights_cols:
-                total_fee += (pd.to_numeric(row[c], errors="coerce") or 0) * 500
-
-              if total_fee_cols:
-                recalculated_df.at[idx, total_fee_cols[0]] = total_fee
-
-            with get_db_connection() as conn:
-              cursor = conn.cursor()
-              cursor.execute(
-                  "DELETE FROM ledger_entries WHERE year_sheet = ?",
-                  (sheet_to_inspect,),
-              )
-              for idx, row in recalculated_df.iterrows():
-                t_name = str(row.get("NAME", row.get("Trader_Name", "Unknown")))
-                p_no = str(row.get("Phone No.", row.get("Phone", "0700000000")))
-                stn = str(row.get("STATION", row.get("Sub_County", "OFFICE")))
-                s_no_val = str(
-                    row.get("S/NO.", row.get("Serial_No", "PENDING"))
-                )
-                date_val = str(row.get("DATE", row.get("Date", "PENDING")))
-                tot_amt = (
-                    float(row.get(total_fee_cols[0], 0))
-                    if total_fee_cols
-                    else 0.0
-                )
-
-                cursor.execute(
-                    """
-                            INSERT INTO ledger_entries (year_sheet, date_entry, serial_no, trader_name, phone_no, station, stamped_pumps, stamped_scales, stamped_weights, total_amount, mpesa_code, inspector_logged)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                    (
-                        sheet_to_inspect,
-                        date_val,
-                        s_no_val,
-                        t_name,
-                        p_no,
-                        stn,
-                        int(row.get("stamped_pumps", 0))
-                        if "stamped_pumps" in row
-                        else 0,
-                        int(row.get("stamped_scales", 0))
-                        if "stamped_scales" in row
-                        else 0,
-                        int(row.get("stamped_weights", 0))
-                        if "stamped_weights" in row
-                        else 0,
-                        tot_amt,
-                        "",
-                        st.session_state["user_name"],
-                    ),
-                )
-              conn.commit()
-
-            st.session_state["sheets_dict"][sheet_to_inspect] = recalculated_df
-            st.success(
-                f"✅ Sheet '{sheet_to_inspect}' successfully recalculated and"
-                " saved permanently to database!"
-            )
-            st.rerun()
-
-        with col_save2:
-          st.caption(
-              "💡 **Standard Fee Table:** Pumps @ KES 2,400 | Digital Scales @"
-              " KES 2,000 | Counter Scales @ KES 1,500 | Mass Weights @ KES"
-              " 500."
-          )
-
-    st.markdown("---")
     search_query = st.text_input(
         "Search Filter Active Ledger Records:",
         placeholder="Type trader name, phone, serial number, or station...",
@@ -1067,9 +925,9 @@ if is_admin_or_director:
       st.warning("No records available for inspection due filtering.")
 
 else:
-  # --- FIELD INSPECTOR TABS ---
+  # --- FIELD INSPECTOR PORTAL ---
   tab1, tab2, tab3, tab4 = st.tabs([
-      "📝 Log Field Verification & Issue Receipt",
+      "📝 Log Field Verification & Auto-Receipt Generator",
       "📂 View Station Ledger & Records",
       "📅 Circuit Schedules & SMS Notices",
       "🚨 Inspection Due Tracker",
@@ -1100,6 +958,21 @@ else:
       except Exception:
         pass
 
+    # Dynamic trader list for auto-completion
+    trader_name_col = next(
+        (
+            c
+            for c in df_active.columns
+            if "name" in c.lower() or "trader" in c.lower()
+        ),
+        None,
+    )
+    existing_traders = (
+        sorted(list(df_active[trader_name_col].dropna().unique()))
+        if trader_name_col
+        else []
+    )
+
     with st.form("inspection_form"):
       f_col1, f_col2 = st.columns(2)
       with f_col1:
@@ -1109,12 +982,24 @@ else:
             disabled=True,
         )
         target_sheet_entry = st.selectbox(
-            "Save To Year Sheet:",
+            "Save To Active Sheet / Year:",
             available_sheets if available_sheets else ["2026"],
         )
-        new_trader = st.text_input(
-            "Trader / Business Name", placeholder="e.g. DEKUT COFFEE"
+
+        # Trader auto-selection or manual entry
+        select_trader = st.selectbox(
+            "Select Existing Registered Trader (or type new below):",
+            ["-- New Trader --"] + existing_traders,
         )
+        manual_trader = st.text_input(
+            "Trader / Business Name",
+            value="" if select_trader != "-- New Trader --" else "",
+            placeholder="e.g. DEKUT COFFEE",
+        )
+        final_trader_name = (
+            select_trader if select_trader != "-- New Trader --" else manual_trader
+        )
+
         phone_number = st.text_input(
             "Trader Phone Number", placeholder="0722906936"
         )
@@ -1150,7 +1035,7 @@ else:
         )
 
       submitted = st.form_submit_button(
-          "Calculate Total, Verify Payment & Log Entry"
+          "Calculate Total, Verify Payment & Auto-Sync Entry"
       )
 
       if submitted:
@@ -1166,8 +1051,10 @@ else:
         if calc_fee == 0:
           calc_fee = 2000
 
-        if new_trader.strip() == "":
-          st.warning("Please enter a valid Trader / Business Name.")
+        if final_trader_name.strip() == "":
+          st.warning(
+              "Please enter or select a valid Trader / Business Name."
+          )
         elif len(clean_code) < 8:
           st.error(
               "⚠️ Transaction Blocked: Valid M-Pesa confirmation code required."
@@ -1181,7 +1068,7 @@ else:
           rec_payload = {
               "year_sheet": target_sheet_entry,
               "s_no": default_sno,
-              "trader": new_trader,
+              "trader": final_trader_name,
               "phone": clean_phone,
               "station": new_station,
               "pumps": stamped_pumps,
@@ -1194,12 +1081,14 @@ else:
               "inspector": st.session_state["user_name"],
           }
 
+          # 1. Save entry to SQLite database permanently
           save_record_to_db(rec_payload)
 
+          # 2. Sync directly to the current year sheet in session state
           new_row = pd.DataFrame([{
               "DATE": inspection_date_str,
               "S/NO.": default_sno,
-              "NAME": new_trader,
+              "NAME": final_trader_name,
               "Phone No.": clean_phone,
               "STATION": new_station,
               "Total Amount kshs": calc_fee,
@@ -1215,8 +1104,8 @@ else:
 
           st.session_state["last_receipt_data"] = rec_payload
           st.success(
-              f"✅ Inspection logged successfully! Total Fee: KES"
-              f" {calc_fee:,.2f}. Certificate generated."
+              f"✅ Entry synced to database & sheet '{target_sheet_entry}'"
+              f" successfully! Total Fee: KES {calc_fee:,.2f}."
           )
           st.rerun()
 
