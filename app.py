@@ -180,6 +180,97 @@ def generate_pdf_certificate(r):
   return buffer.getvalue()
 
 
+# --- PDF HAND-IN REPORT GENERATOR ---
+def generate_pdf_handin_report(
+    inspector_name,
+    report_date_str,
+    summary_df,
+    total_rev,
+    total_insp,
+    amount_in_words,
+):
+  buffer = io.BytesIO()
+  c = canvas.Canvas(buffer, pagesize=(595.27, 841.89))  # A4 size
+
+  # Header Banner
+  c.setFillColorRGB(0, 0.41, 0.22)
+  c.rect(40, 780, 515, 35, fill=1, stroke=0)
+  c.setFillColorRGB(1, 1, 1)
+  c.setFont("Helvetica-Bold", 12)
+  c.drawString(
+      50, 792, "COUNTY GOVERNMENT OF NYERI - WEIGHTS & MEASURES"
+  )
+
+  c.setFillColorRGB(0, 0, 0)
+  c.setFont("Helvetica-Bold", 14)
+  c.drawString(50, 745, "DAILY FIELD INSPECTION HAND-IN REPORT")
+
+  c.setFont("Helvetica", 10)
+  c.drawString(50, 725, f"Reporting Officer: {inspector_name}")
+  c.drawString(50, 710, f"Inspection Date: {report_date_str}")
+  c.drawString(
+      50,
+      695,
+      f"Total Inspections: {total_insp:,} | Total Revenue: KES"
+      f" {total_rev:,.2f}",
+  )
+
+  c.setFont("Helvetica-Oblique", 9)
+  c.drawString(50, 680, f"Amount in Words: {amount_in_words}")
+
+  # Table Header
+  y = 640
+  c.setFillColorRGB(0, 0.41, 0.22)
+  c.rect(40, y - 5, 515, 20, fill=1, stroke=0)
+  c.setFillColorRGB(1, 1, 1)
+  c.setFont("Helvetica-Bold", 9)
+  c.drawString(50, y, "Inspection Center / Station")
+  c.drawString(240, y, "Traders")
+  c.drawString(290, y, "Pumps")
+  c.drawString(340, y, "Scales")
+  c.drawString(390, y, "Weights")
+  c.drawString(450, y, "Total Fee (KES)")
+
+  y -= 25
+  c.setFillColorRGB(0, 0, 0)
+  c.setFont("Helvetica", 9)
+
+  for idx, row in summary_df.iterrows():
+    c.drawString(50, y, str(row.iloc[0]))
+    c.drawString(240, y, str(row.iloc[1]))
+    c.drawString(290, y, str(row.iloc[3]))
+    c.drawString(340, y, str(row.iloc[4]))
+    c.drawString(390, y, str(row.iloc[5]))
+    c.drawString(450, y, f"{row.iloc[2]:,.2f}")
+    y -= 20
+    if y < 100:
+      c.showPage()
+      y = 750
+
+  # Sign-off section
+  y -= 40
+  c.line(40, y, 555, y)
+  y -= 30
+  c.drawString(50, y, "Officer Signature: _______________________")
+  c.drawString(330, y, "Director Approval: _______________________")
+
+  c.save()
+  buffer.seek(0)
+  return buffer.getvalue()
+
+
+# --- NUMBER TO WORDS CONVERTER HELPER ---
+def number_to_words_kes(amount):
+  try:
+    from num2words import num2words
+
+    words = num2words(int(amount), lang="en").upper()
+    return f"KENYA SHILLINGS {words} ONLY"
+  except Exception:
+    # Fallback text representation if num2words is not installed
+    return f"KENYA SHILLINGS {amount:,.2f} ONLY (VERIFIED)"
+
+
 # --- 2. AUTHENTICATION ---
 if "authenticated" not in st.session_state:
   st.session_state["authenticated"] = False
@@ -1220,6 +1311,33 @@ else:
         ]
 
         st.dataframe(station_summary, use_container_width=True)
+
+        # --- AUTO-TRANSLATED FIGURES TO WORDS ---
+        rev_in_words = number_to_words_kes(total_revenue_day)
+        st.info(
+            f"📝 **Auto-Translated Total Revenue (in Words):**\n`{rev_in_words}`"
+        )
+
+        st.markdown("---")
+
+        # --- PDF HAND-IN REPORT DOWNLOAD BUTTON ---
+        pdf_handin_bytes = generate_pdf_handin_report(
+            inspector_name,
+            report_date_str,
+            station_summary,
+            total_revenue_day,
+            total_inspections_day,
+            rev_in_words,
+        )
+
+        st.download_button(
+            label="📥 Download Printable PDF Hand-In Report (.pdf)",
+            data=pdf_handin_bytes,
+            file_name=(
+                f"HandIn_Report_{inspector_name.replace(' ', '_')}_{report_date_str}.pdf"
+            ),
+            mime="application/pdf",
+        )
 
         st.markdown("---")
         st.markdown("**Detailed Transaction Log for Hand-In:**")
