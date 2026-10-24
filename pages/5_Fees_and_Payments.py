@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from src.db import load_all_db_records
-
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 st.set_page_config(page_title="Fees & Payments | Nyeri Registry", page_icon="⚖️", layout="wide")
 st.title("💳 Fee Records & Payment Reconciliation Workspace")
 st.markdown("*Audited financial ledger records, M-Pesa code tracking, and county revenue reconciliations.*")
