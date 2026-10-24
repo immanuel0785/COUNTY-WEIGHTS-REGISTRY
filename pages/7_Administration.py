@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from src.db import load_all_db_records, load_traders_from_db
-
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 st.set_page_config(page_title="Audit & Admin | Nyeri Registry", page_icon="⚖️", layout="wide")
 st.title("🛡️ Audit & Administration Workspace")
 st.markdown("*Executive auditing metrics, financial summaries, staff access controls, and change log history.*")
