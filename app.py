@@ -51,27 +51,21 @@ st.markdown("""
     <div style="font-size: 22px; font-weight: 700; color: #ffffff;">Nyeri Weights & Measures Digital Registry</div>
     <div style="font-size: 14px; color: #8b949e; margin-top: 4px;">Secure application with role-based access</div>
 </div>
-<div class="flow-arrow">↓ Select module from sidebar navigation or cards below</div>
+<div class="flow-arrow">↓ Select module using the sidebar navigation menu on the left</div>
 """, unsafe_allow_html=True)
 
-# 6 Structured Module Navigation Buttons
+# 6 Structured Module Navigation Cards (Using st.page_link to prevent path errors)
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("👥 Trader Registry\n\nBusinesses and contacts"):
-        st.switch_page("pages/2_Traders.py")
-    if st.button("📋 Inspections\n\nVisits and verification history"):
-        st.switch_page("pages/4_Inspections.py")
-    if st.button("📊 Reports\n\nPeriodic summaries and exports"):
-        st.switch_page("pages/6_Reports.py")
+    st.page_link("pages/2_Traders.py", label="👥 Trader Registry - Businesses and contacts", icon="👥")
+    st.page_link("pages/4_Inspections.py", label="📋 Inspections - Visits and verification history", icon="📋")
+    st.page_link("pages/6_Reports.py", label="📊 Reports - Periodic summaries and exports", icon="📊")
 
 with col2:
-    if st.button("⚖️ Equipment Registry\n\nEquipment IDs and status"):
-        st.switch_page("pages/3_Equipment.py")
-    if st.button("💳 Fee Records\n\nAssessments and reconciled payments"):
-        st.switch_page("pages/5_Fees_and_Payments.py")
-    if st.button("🛡️ Audit & Administration\n\nUsers, permissions and change history"):
-        st.switch_page("pages/7_Administration.py")
+    st.page_link("pages/3_Equipment.py", label="⚖️ Equipment Registry - Equipment IDs and status", icon="⚖️")
+    st.page_link("pages/5_Fees_and_Payments.py", label="💳 Fee Records - Assessments and reconciled payments", icon="💳")
+    st.page_link("pages/7_Administration.py", label="🛡️ Audit & Administration - Users and permissions", icon="🛡️")
 
 # Central Database Footer Card
 st.markdown("""
