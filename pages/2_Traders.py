@@ -1,6 +1,8 @@
 import streamlit as st
 from src.db import save_trader_to_db, load_traders_from_db
-
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 st.set_page_config("Trader Registry | Nyeri Registry")
 st.title("👥 Trader & Business Registry")
 st.markdown("*Register new businesses and manage verified contact directories.*")
