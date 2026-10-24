@@ -1,7 +1,7 @@
 import os
 import sys
 
-# Force Python to recognize the root repository directory
+# THIS MUST BE AT THE VERY TOP BEFORE ANY SRC IMPORTS
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 )
