@@ -1,8 +1,10 @@
 import os
 import sys
 
-# Add root directory to path so 'src' can be found
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Force Python to recognize the root repository directory
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 
 from datetime import datetime, timedelta
 import streamlit as st
