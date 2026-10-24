@@ -3,7 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from src.db import save_record_to_db, load_all_db_records, load_traders_from_db
 from src.receipts import generate_pdf_certificate
-
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
 st.set_page_config(page_title="Inspections | Nyeri Registry", page_icon="⚖️", layout="wide")
 st.title("📋 Field Verification & Inspection Workspace")
 st.markdown("*Log active field stamping visits, calculate fees, process M-Pesa receipts, and auto-sync to DB.*")
